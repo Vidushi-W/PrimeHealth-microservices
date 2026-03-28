@@ -1,0 +1,30 @@
+# version: '3.8'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - patient-service
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "3001:3001"
+
+  patient-service:
+    build: ./patient-service
+    ports:
+      - "3002:3002"
+
+  appointment-service:
+    build: ./appointment-service
+    ports:
+      - "3003:3003"
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "3004:3004"
