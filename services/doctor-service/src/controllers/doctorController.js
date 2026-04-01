@@ -65,10 +65,41 @@ async function getAvailability(req, res, next) {
   }
 }
 
+async function getNextAvailableSlot(req, res, next) {
+  try {
+    const slot = await doctorService.getNextAvailableSlot(req.params.id);
+    res.status(200).json({
+      success: true,
+      message: 'Next available slot fetched',
+      data: slot
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getPatientSummary(req, res, next) {
+  try {
+    const summary = await doctorService.getPatientSummary(
+      req.params.doctorId,
+      req.params.patientId
+    );
+    res.status(200).json({
+      success: true,
+      message: 'Patient summary fetched',
+      data: summary
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   registerDoctor,
   getDoctorById,
   updateDoctor,
   addAvailability,
-  getAvailability
+  getAvailability,
+  getNextAvailableSlot,
+  getPatientSummary
 };

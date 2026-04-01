@@ -42,12 +42,19 @@ router.post(
   [
     param('id').isString().trim().notEmpty(),
     body('day').isString().trim().notEmpty(),
-    body('slots').optional().isArray(),
-    body('slots.*.start').optional().isString().trim().notEmpty(),
-    body('slots.*.end').optional().isString().trim().notEmpty()
+    body('slots').isArray({ min: 1 }),
+    body('slots.*.start').isString().trim().notEmpty(),
+    body('slots.*.end').isString().trim().notEmpty()
   ],
   validate,
   doctorController.addAvailability
+);
+
+router.get(
+  '/api/doctors/:id/next-available-slot',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  doctorController.getNextAvailableSlot
 );
 
 router.get(
@@ -55,6 +62,16 @@ router.get(
   [param('id').isString().trim().notEmpty()],
   validate,
   doctorController.getAvailability
+);
+
+router.get(
+  '/api/doctors/:doctorId/patient-summary/:patientId',
+  [
+    param('doctorId').isString().trim().notEmpty(),
+    param('patientId').isString().trim().notEmpty()
+  ],
+  validate,
+  doctorController.getPatientSummary
 );
 
 module.exports = router;
