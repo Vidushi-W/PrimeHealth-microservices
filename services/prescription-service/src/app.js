@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const doctorRoutes = require('./routes/doctorRoutes');
+const prescriptionRoutes = require('./routes/prescriptionRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -18,10 +18,10 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ success: true, service: 'doctor-service' });
+  res.status(200).json({ success: true, service: 'prescription-service' });
 });
 
-app.use(doctorRoutes);
+app.use(prescriptionRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
