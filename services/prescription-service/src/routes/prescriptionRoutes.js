@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param } = require('express-validator');
 const prescriptionController = require('../controllers/prescriptionController');
 const { validate } = require('../utils/validate');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -19,6 +20,7 @@ router.post(
     body('notes').optional().isString().trim()
   ],
   validate,
+  requireRole('doctor'),
   prescriptionController.createPrescription
 );
 

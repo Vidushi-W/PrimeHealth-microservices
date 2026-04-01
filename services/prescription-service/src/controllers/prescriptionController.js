@@ -3,7 +3,11 @@ const prescriptionService = require('../services/prescriptionService');
 async function createPrescription(req, res, next) {
   try {
     const prescription = await prescriptionService.createPrescription(req.body);
-    res.status(201).json({ success: true, data: prescription });
+    res.status(201).json({
+      success: true,
+      message: 'Prescription created',
+      data: prescription
+    });
   } catch (err) {
     next(err);
   }
@@ -14,7 +18,11 @@ async function getByPatient(req, res, next) {
     const prescriptions = await prescriptionService.getPrescriptionsByPatient(
       req.params.patientId
     );
-    res.status(200).json({ success: true, data: prescriptions });
+    res.status(200).json({
+      success: true,
+      message: 'Prescriptions fetched',
+      data: prescriptions
+    });
   } catch (err) {
     next(err);
   }
@@ -25,7 +33,11 @@ async function getByDoctor(req, res, next) {
     const prescriptions = await prescriptionService.getPrescriptionsByDoctor(
       req.params.doctorId
     );
-    res.status(200).json({ success: true, data: prescriptions });
+    res.status(200).json({
+      success: true,
+      message: 'Prescriptions fetched',
+      data: prescriptions
+    });
   } catch (err) {
     next(err);
   }

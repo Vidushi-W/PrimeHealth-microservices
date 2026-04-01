@@ -7,7 +7,8 @@ function errorHandler(err, _req, res, _next) {
 
   const payload = {
     success: false,
-    message
+    message,
+    data: null
   };
 
   if (err instanceof ApiError && err.details) payload.details = err.details;
