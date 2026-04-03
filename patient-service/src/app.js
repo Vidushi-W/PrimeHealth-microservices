@@ -10,7 +10,11 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-// Routes (to be added)
+const patientRoutes = require('./routes/patientRoutes');
+
+// Routes
+app.use('/api/patients', patientRoutes);
+
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Patient service is running' });
 });
