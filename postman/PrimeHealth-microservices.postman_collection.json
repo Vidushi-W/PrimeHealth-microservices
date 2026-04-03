@@ -554,6 +554,421 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "RBAC and Audit Management",
+          "item": [
+            {
+              "name": "Advanced Users - List (All Roles)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt"
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Advanced Users - List Doctors (Filtered)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users?role=doctor&status=pending&search=Dr&page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "role",
+                      "value": "doctor"
+                    },
+                    {
+                      "key": "status",
+                      "value": "pending"
+                    },
+                    {
+                      "key": "search",
+                      "value": "Dr"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt"
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "User Profile with Activity",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/profile?activityLimit=50",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "{{managedRole}}",
+                    "{{managedUserId}}",
+                    "profile"
+                  ],
+                  "query": [
+                    {
+                      "key": "activityLimit",
+                      "value": "50"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update User (Role, Permissions, Status)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"active\",\n  \"permissions\": [\"user.read\", \"audit.read\"],\n  \"adminRole\": \"operations_admin\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "{{managedRole}}",
+                    "{{managedUserId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Change User Status",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"suspended\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "{{managedRole}}",
+                    "{{managedUserId}}",
+                    "status"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Deactivate User",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/deactivate",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "{{managedRole}}",
+                    "{{managedUserId}}",
+                    "deactivate"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete User (Hard Delete)",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}?confirm=DELETE",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "{{managedRole}}",
+                    "{{managedUserId}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "confirm",
+                      "value": "DELETE"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Upload Doctor Document",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const json = pm.response.json();",
+                      "if (json && json.document && json.document._id) {",
+                      "    pm.collectionVariables.set('doctorDocumentId', json.document._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"medical_license\",\n  \"url\": \"https://example.com/docs/license.pdf\",\n  \"notes\": \"Initial submission\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "doctors",
+                    "{{doctorId}}",
+                    "documents"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Verify Doctor Document",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents/{{doctorDocumentId}}/verify",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "doctors",
+                    "{{doctorId}}",
+                    "documents",
+                    "{{doctorDocumentId}}",
+                    "verify"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Reject Doctor Document",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"notes\": \"Document is unclear. Please upload a higher resolution copy.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents/{{doctorDocumentId}}/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "users",
+                    "doctors",
+                    "{{doctorId}}",
+                    "documents",
+                    "{{doctorDocumentId}}",
+                    "reject"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Audit Logs",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{adminToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/audit-logs?page=1&limit=50&targetType=doctor",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "audit-logs"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50"
+                    },
+                    {
+                      "key": "targetType",
+                      "value": "doctor"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -582,6 +997,18 @@
     },
     {
       "key": "managedAdminId",
+      "value": ""
+    },
+    {
+      "key": "managedRole",
+      "value": "admin"
+    },
+    {
+      "key": "managedUserId",
+      "value": ""
+    },
+    {
+      "key": "doctorDocumentId",
       "value": ""
     }
   ]
