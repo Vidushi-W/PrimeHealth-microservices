@@ -29,6 +29,9 @@ coverage/
 .cache/
 .eslintcache
 *.tsbuildinfo
+.vite/
+.npm/
+.pnpm-store/
 
 # OS and editor
 .DS_Store
