@@ -10,6 +10,9 @@ const Doctor = require('./models/Doctor');
 const Patient = require('./models/Patient');
 const Transaction = require('./models/Transaction');
 const Appointment = require('./models/Appointment');
+const AuditLog = require('./models/AuditLog');
+
+const { requirePermission, RBAC } = auth;
 
 dotenv.config();
 
@@ -21,7 +24,6 @@ app.use(cors());
 app.use(express.json());
 
 const hasRequiredConfig = () => Boolean(process.env.MONGO_URI && process.env.JWT_SECRET);
-
 const isDatabaseReady = () => mongoose.connection.readyState === 1;
 
 const getServiceReadinessError = () => {
@@ -67,14 +69,19 @@ const connectDatabase = async () => {
     }
 };
 
-const toSafeAdmin = (adminDoc) => ({
-    _id: adminDoc._id,
-    email: adminDoc.email,
-    role: adminDoc.role,
-    status: adminDoc.status,
-    createdAt: adminDoc.createdAt,
-    updatedAt: adminDoc.updatedAt
-});
+const managedRoleConfig = {
+    admin: { model: Admin, searchFields: ['email'] },
+    doctor: { model: Doctor, searchFields: ['name', 'email', 'specialty'] },
+    patient: { model: Patient, searchFields: ['name', 'email'] }
+};
+
+const allowedUserStatuses = new Set(['active', 'inactive', 'pending', 'verified', 'suspended', 'deactivated']);
+const allowedSortFields = new Set(['createdAt', 'updatedAt', 'name', 'email', 'status', 'lastActiveAt', 'lastLoginAt']);
+const allowedAdminRoles = new Set(Object.keys(RBAC));
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const normalizeEmail = (email) => (typeof email === 'string' ? email.toLowerCase().trim() : '');
 
 const parseDuplicateKeyError = (error, entityName) => {
     if (error && error.code === 11000) {
@@ -84,9 +91,163 @@ const parseDuplicateKeyError = (error, entityName) => {
     return null;
 };
 
-const allowedUserStatuses = new Set(['active', 'inactive', 'pending', 'verified', 'deactivated']);
+const toSafeAdmin = (adminDoc) => ({
+    _id: adminDoc._id,
+    email: adminDoc.email,
+    role: adminDoc.role,
+    permissions: adminDoc.permissions || [],
+    status: adminDoc.status,
+    lastLoginAt: adminDoc.lastLoginAt || null,
+    lastActiveAt: adminDoc.lastActiveAt || null,
+    createdAt: adminDoc.createdAt,
+    updatedAt: adminDoc.updatedAt
+});
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const toSafeUser = (role, userDoc) => {
+    if (!userDoc) {
+        return null;
+    }
+
+    const raw = userDoc.toObject ? userDoc.toObject() : userDoc;
+
+    if (role === 'admin') {
+        delete raw.passwordHash;
+    }
+
+    return {
+        ...raw,
+        roleType: role
+    };
+};
+
+const getRoleModel = (role) => managedRoleConfig[role]?.model || null;
+
+const parsePagination = (query) => {
+    const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 20));
+    return {
+        page,
+        limit,
+        skip: (page - 1) * limit
+    };
+};
+
+const getSortConfig = (query) => {
+    const sortBy = allowedSortFields.has(query.sortBy) ? query.sortBy : 'createdAt';
+    const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
+    return { [sortBy]: sortOrder };
+};
+
+const buildUserFilter = (role, query) => {
+    const filter = {};
+    const andClauses = [];
+
+    if (query.status) {
+        filter.status = query.status;
+    }
+
+    if (query.search) {
+        const regex = new RegExp(query.search.trim(), 'i');
+        const searchFields = managedRoleConfig[role].searchFields;
+        andClauses.push({ $or: searchFields.map((field) => ({ [field]: regex })) });
+    }
+
+    if (role === 'admin' && query.adminRole) {
+        filter.role = query.adminRole;
+    }
+
+    if (role === 'doctor' && query.specialty) {
+        filter.specialty = new RegExp(query.specialty.trim(), 'i');
+    }
+
+    if (query.activityFrom || query.activityTo) {
+        filter.lastActiveAt = {};
+
+        if (query.activityFrom) {
+            filter.lastActiveAt.$gte = new Date(query.activityFrom);
+        }
+
+        if (query.activityTo) {
+            filter.lastActiveAt.$lte = new Date(query.activityTo);
+        }
+    }
+
+    if (query.includeDeleted !== 'true') {
+        andClauses.push({ $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }] });
+    }
+
+    if (andClauses.length > 0) {
+        filter.$and = andClauses;
+    }
+
+    return filter;
+};
+
+const getClientIp = (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+
+    if (typeof forwarded === 'string' && forwarded.trim()) {
+        return forwarded.split(',')[0].trim();
+    }
+
+    return req.ip || '';
+};
+
+const logAudit = async (req, payload) => {
+    try {
+        const actor = req.adminProfile;
+
+        if (!actor) {
+            return;
+        }
+
+        await AuditLog.create({
+            actorAdminId: actor._id,
+            actorEmail: actor.email,
+            actorRole: actor.role,
+            action: payload.action,
+            targetType: payload.targetType || '',
+            targetId: payload.targetId || '',
+            targetEmail: payload.targetEmail || '',
+            metadata: payload.metadata || {},
+            ip: getClientIp(req),
+            userAgent: req.headers['user-agent'] || ''
+        });
+    } catch (error) {
+        console.error('Audit log write failed:', error.message);
+    }
+};
+
+const logAuditForActor = async (req, actor, payload) => {
+    try {
+        await AuditLog.create({
+            actorAdminId: actor._id,
+            actorEmail: actor.email,
+            actorRole: actor.role,
+            action: payload.action,
+            targetType: payload.targetType || '',
+            targetId: payload.targetId || '',
+            targetEmail: payload.targetEmail || '',
+            metadata: payload.metadata || {},
+            ip: getClientIp(req),
+            userAgent: req.headers['user-agent'] || ''
+        });
+    } catch (error) {
+        console.error('Audit log write failed:', error.message);
+    }
+};
+
+const ensureValidRole = (role, res) => {
+    if (!managedRoleConfig[role]) {
+        res.status(400).json({
+            success: false,
+            message: 'Invalid role. Allowed values: admin, doctor, patient.'
+        });
+        return false;
+    }
+
+    return true;
+};
 
 // --- Authentication Routes ---
 
@@ -101,7 +262,7 @@ app.post('/api/admin/bootstrap', requireServiceReady, async (req, res) => {
             });
         }
 
-        const { email, password, role } = req.body;
+        const { email, password, role, permissions } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({
@@ -117,12 +278,23 @@ app.post('/api/admin/bootstrap', requireServiceReady, async (req, res) => {
             });
         }
 
+        const adminRole = role || 'super_admin';
+
+        if (!allowedAdminRoles.has(adminRole)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid admin role. Allowed values: ${Array.from(allowedAdminRoles).join(', ')}`
+            });
+        }
+
         const passwordHash = await bcrypt.hash(password, 10);
         const admin = await Admin.create({
-            email: email.toLowerCase(),
+            email: normalizeEmail(email),
             passwordHash,
-            role: role || 'admin',
-            status: 'active'
+            role: adminRole,
+            permissions: Array.isArray(permissions) ? permissions : [],
+            status: 'active',
+            lastActiveAt: new Date()
         });
 
         return res.status(201).json({
@@ -149,10 +321,17 @@ app.post('/api/admin/login', requireServiceReady, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Email and password are required.' });
         }
 
-        const admin = await Admin.findOne({ email: email.toLowerCase() });
+        const admin = await Admin.findOne({ email: normalizeEmail(email) });
 
         if (!admin || !admin.passwordHash) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        if (!['active', 'verified'].includes(admin.status)) {
+            return res.status(403).json({
+                success: false,
+                message: `Account is ${admin.status}. Please contact a super admin.`
+            });
         }
 
         const isPasswordValid = await bcrypt.compare(password, admin.passwordHash);
@@ -161,27 +340,413 @@ app.post('/api/admin/login', requireServiceReady, async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ id: admin._id.toString(), role: admin.role || 'admin' }, JWT_SECRET, { expiresIn: '1h' });
+        const now = new Date();
+        admin.lastLoginAt = now;
+        admin.lastActiveAt = now;
+        admin.lastLoginIp = getClientIp(req);
+        admin.lastLoginUserAgent = req.headers['user-agent'] || '';
+        await admin.save();
+
+        const token = jwt.sign(
+            {
+                id: admin._id.toString(),
+                role: admin.role || 'admin'
+            },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        await logAuditForActor(req, admin, {
+            action: 'admin.login',
+            targetType: 'admin',
+            targetId: admin._id.toString(),
+            targetEmail: admin.email
+        });
+
         return res.json({ success: true, token });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Login failed', error: error.message });
     }
 });
 
-// --- Protected Admin Routes ---
+// --- Advanced User Management ---
 
-app.get('/api/admin/users/admins', requireServiceReady, auth, async (req, res) => {
+app.get('/api/admin/users', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
+    try {
+        const { role } = req.query;
+        const pagination = parsePagination(req.query);
+        const sort = getSortConfig(req.query);
+
+        if (role) {
+            if (!ensureValidRole(role, res)) {
+                return;
+            }
+
+            const model = getRoleModel(role);
+            const filter = buildUserFilter(role, req.query);
+            const projection = role === 'admin' ? '-passwordHash' : '';
+
+            const [items, total] = await Promise.all([
+                model.find(filter).select(projection).sort(sort).skip(pagination.skip).limit(pagination.limit),
+                model.countDocuments(filter)
+            ]);
+
+            return res.json({
+                success: true,
+                role,
+                pagination: {
+                    page: pagination.page,
+                    limit: pagination.limit,
+                    total,
+                    totalPages: Math.ceil(total / pagination.limit) || 1
+                },
+                users: items.map((item) => toSafeUser(role, item))
+            });
+        }
+
+        const roles = Object.keys(managedRoleConfig);
+        const perRoleLimit = Math.min(200, pagination.limit * 2);
+
+        const roleResults = await Promise.all(
+            roles.map(async (currentRole) => {
+                const model = getRoleModel(currentRole);
+                const projection = currentRole === 'admin' ? '-passwordHash' : '';
+                const filter = buildUserFilter(currentRole, req.query);
+                const docs = await model.find(filter).select(projection).sort(sort).limit(perRoleLimit);
+                return docs.map((doc) => toSafeUser(currentRole, doc));
+            })
+        );
+
+        const flattened = roleResults.flat();
+        const sortKey = Object.keys(sort)[0];
+        const sortDirection = sort[sortKey];
+
+        flattened.sort((a, b) => {
+            const left = a[sortKey] ?? '';
+            const right = b[sortKey] ?? '';
+
+            if (typeof left === 'string' || typeof right === 'string') {
+                const leftValue = String(left).toLowerCase();
+                const rightValue = String(right).toLowerCase();
+                if (leftValue === rightValue) return 0;
+                return sortDirection === 1 ? (leftValue > rightValue ? 1 : -1) : (leftValue > rightValue ? -1 : 1);
+            }
+
+            const leftDate = new Date(left).getTime();
+            const rightDate = new Date(right).getTime();
+
+            if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate)) {
+                return sortDirection === 1 ? leftDate - rightDate : rightDate - leftDate;
+            }
+
+            const leftNumber = Number(left) || 0;
+            const rightNumber = Number(right) || 0;
+            return sortDirection === 1 ? leftNumber - rightNumber : rightNumber - leftNumber;
+        });
+
+        const total = flattened.length;
+        const users = flattened.slice(pagination.skip, pagination.skip + pagination.limit);
+
+        return res.json({
+            success: true,
+            role: 'all',
+            pagination: {
+                page: pagination.page,
+                limit: pagination.limit,
+                total,
+                totalPages: Math.ceil(total / pagination.limit) || 1
+            },
+            users
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to fetch users', error: error.message });
+    }
+});
+
+app.get('/api/admin/users/:role/:id/profile', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
+    try {
+        const { role, id } = req.params;
+
+        if (!ensureValidRole(role, res)) {
+            return;
+        }
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id format' });
+        }
+
+        const model = getRoleModel(role);
+        const projection = role === 'admin' ? '-passwordHash' : '';
+        const user = await model.findById(id).select(projection);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const activityLimit = Math.min(200, Math.max(10, Number.parseInt(req.query.activityLimit, 10) || 50));
+
+        const activityHistory = await AuditLog.find({
+            $or: [
+                { targetType: role, targetId: id },
+                ...(role === 'admin' ? [{ actorAdminId: id }] : [])
+            ]
+        })
+            .sort({ createdAt: -1 })
+            .limit(activityLimit);
+
+        return res.json({
+            success: true,
+            profile: toSafeUser(role, user),
+            activityHistory
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to fetch user profile', error: error.message });
+    }
+});
+
+app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
+    try {
+        const { role, id } = req.params;
+
+        if (!ensureValidRole(role, res)) {
+            return;
+        }
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id format' });
+        }
+
+        const updates = {};
+        const { name, email, status, permissions, specialty, adminRole } = req.body;
+
+        if (name !== undefined && role !== 'admin') {
+            updates.name = name;
+        }
+
+        if (specialty !== undefined && role === 'doctor') {
+            updates.specialty = specialty;
+        }
+
+        if (email !== undefined) {
+            updates.email = normalizeEmail(email);
+        }
+
+        if (status !== undefined) {
+            if (!allowedUserStatuses.has(status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
+                });
+            }
+
+            updates.status = status;
+            updates.deletedAt = status === 'deactivated' ? new Date() : null;
+        }
+
+        if (permissions !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: permission.manage is required to update user permissions.'
+                });
+            }
+
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, message: 'permissions must be an array of strings.' });
+            }
+
+            updates.permissions = permissions;
+        }
+
+        if (role === 'admin' && adminRole !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('role.assign')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: role.assign is required to update admin roles.'
+                });
+            }
+
+            if (!allowedAdminRoles.has(adminRole)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid admin role. Allowed values: ${Array.from(allowedAdminRoles).join(', ')}`
+                });
+            }
+
+            updates.role = adminRole;
+        }
+
+        updates.lastActiveAt = new Date();
+
+        const model = getRoleModel(role);
+        const projection = role === 'admin' ? '-passwordHash' : '';
+        const updatedUser = await model.findByIdAndUpdate(id, updates, { new: true }).select(projection);
+
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await logAudit(req, {
+            action: `user.${role}.updated`,
+            targetType: role,
+            targetId: id,
+            targetEmail: updatedUser.email || '',
+            metadata: { updates: Object.keys(updates) }
+        });
+
+        return res.json({ success: true, user: toSafeUser(role, updatedUser) });
+    } catch (error) {
+        const duplicateMessage = parseDuplicateKeyError(error, 'User');
+
+        if (duplicateMessage) {
+            return res.status(409).json({ success: false, message: duplicateMessage });
+        }
+
+        return res.status(500).json({ success: false, message: 'Failed to update user', error: error.message });
+    }
+});
+
+app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requirePermission('user.deactivate'), async (req, res) => {
+    try {
+        const { role, id } = req.params;
+        const { status } = req.body;
+
+        if (!ensureValidRole(role, res)) {
+            return;
+        }
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id format' });
+        }
+
+        if (!status || !allowedUserStatuses.has(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
+            });
+        }
+
+        const updates = {
+            status,
+            deletedAt: status === 'deactivated' ? new Date() : null,
+            lastActiveAt: new Date()
+        };
+
+        const model = getRoleModel(role);
+        const projection = role === 'admin' ? '-passwordHash' : '';
+        const user = await model.findByIdAndUpdate(id, updates, { new: true }).select(projection);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await logAudit(req, {
+            action: `user.${role}.status.changed`,
+            targetType: role,
+            targetId: id,
+            targetEmail: user.email || '',
+            metadata: { status }
+        });
+
+        return res.json({ success: true, user: toSafeUser(role, user) });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to update user status', error: error.message });
+    }
+});
+
+app.patch('/api/admin/users/:role/:id/deactivate', requireServiceReady, auth, requirePermission('user.deactivate'), async (req, res) => {
+    try {
+        const { role, id } = req.params;
+
+        if (!ensureValidRole(role, res)) {
+            return;
+        }
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id format' });
+        }
+
+        const model = getRoleModel(role);
+        const projection = role === 'admin' ? '-passwordHash' : '';
+
+        const user = await model
+            .findByIdAndUpdate(
+                id,
+                { status: 'deactivated', deletedAt: new Date(), lastActiveAt: new Date() },
+                { new: true }
+            )
+            .select(projection);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await logAudit(req, {
+            action: `user.${role}.deactivated`,
+            targetType: role,
+            targetId: id,
+            targetEmail: user.email || ''
+        });
+
+        return res.json({ success: true, user: toSafeUser(role, user) });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to deactivate user', error: error.message });
+    }
+});
+
+app.delete('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermission('user.delete'), async (req, res) => {
+    try {
+        const { role, id } = req.params;
+
+        if (!ensureValidRole(role, res)) {
+            return;
+        }
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id format' });
+        }
+
+        if (req.query.confirm !== 'DELETE') {
+            return res.status(400).json({
+                success: false,
+                message: 'Hard delete requires confirm=DELETE query parameter.'
+            });
+        }
+
+        const model = getRoleModel(role);
+        const deleted = await model.findByIdAndDelete(id);
+
+        if (!deleted) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await logAudit(req, {
+            action: `user.${role}.deleted`,
+            targetType: role,
+            targetId: id,
+            targetEmail: deleted.email || ''
+        });
+
+        return res.json({ success: true, message: `${role} account deleted permanently.` });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to delete user', error: error.message });
+    }
+});
+
+// --- Existing Admin User Routes (Enhanced with RBAC + Audit) ---
+
+app.get('/api/admin/users/admins', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
     try {
         const admins = await Admin.find().select('-passwordHash').sort({ createdAt: -1 });
-        return res.json(admins);
+        return res.json(admins.map((admin) => toSafeAdmin(admin)));
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to fetch admins', error: error.message });
     }
 });
 
-app.post('/api/admin/users/admins', requireServiceReady, auth, async (req, res) => {
+app.post('/api/admin/users/admins', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { email, password, role, status } = req.body;
+        const { email, password, role, status, permissions } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Email and password are required.' });
@@ -191,12 +756,52 @@ app.post('/api/admin/users/admins', requireServiceReady, auth, async (req, res) 
             return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
         }
 
+        const adminRole = role || 'admin';
+
+        if (!allowedAdminRoles.has(adminRole)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid admin role. Allowed values: ${Array.from(allowedAdminRoles).join(', ')}`
+            });
+        }
+
+        if (role && !req.adminPermissions.includes('*') && !req.adminPermissions.includes('role.assign')) {
+            return res.status(403).json({
+                success: false,
+                message: 'Forbidden: role.assign is required to assign admin roles.'
+            });
+        }
+
+        if (permissions && !req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+            return res.status(403).json({
+                success: false,
+                message: 'Forbidden: permission.manage is required to assign permissions.'
+            });
+        }
+
+        if (status && !allowedUserStatuses.has(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
+            });
+        }
+
         const passwordHash = await bcrypt.hash(password, 10);
         const admin = await Admin.create({
-            email: email.toLowerCase(),
+            email: normalizeEmail(email),
             passwordHash,
-            role: role || 'admin',
-            status: status || 'active'
+            role: adminRole,
+            permissions: Array.isArray(permissions) ? permissions : [],
+            status: status || 'active',
+            lastActiveAt: new Date()
+        });
+
+        await logAudit(req, {
+            action: 'user.admin.created',
+            targetType: 'admin',
+            targetId: admin._id.toString(),
+            targetEmail: admin.email,
+            metadata: { role: admin.role, status: admin.status }
         });
 
         return res.status(201).json({ success: true, admin: toSafeAdmin(admin) });
@@ -211,7 +816,7 @@ app.post('/api/admin/users/admins', requireServiceReady, auth, async (req, res) 
     }
 });
 
-app.patch('/api/admin/users/admins/:id/status', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/admins/:id/status', requireServiceReady, auth, requirePermission('user.deactivate'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid admin id format' });
@@ -222,23 +827,35 @@ app.patch('/api/admin/users/admins/:id/status', requireServiceReady, auth, async
         if (!status || !allowedUserStatuses.has(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid status. Allowed values: active, inactive, pending, verified, deactivated.'
+                message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
             });
         }
 
-        const admin = await Admin.findByIdAndUpdate(req.params.id, { status }, { new: true }).select('-passwordHash');
+        const admin = await Admin.findByIdAndUpdate(
+            req.params.id,
+            { status, deletedAt: status === 'deactivated' ? new Date() : null, lastActiveAt: new Date() },
+            { new: true }
+        ).select('-passwordHash');
 
         if (!admin) {
             return res.status(404).json({ success: false, message: 'Admin not found' });
         }
 
-        return res.json({ success: true, admin });
+        await logAudit(req, {
+            action: 'user.admin.status.changed',
+            targetType: 'admin',
+            targetId: admin._id.toString(),
+            targetEmail: admin.email,
+            metadata: { status }
+        });
+
+        return res.json({ success: true, admin: toSafeAdmin(admin) });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to update admin status', error: error.message });
     }
 });
 
-app.patch('/api/admin/users/admins/:id/password', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/admins/:id/password', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid admin id format' });
@@ -251,20 +868,32 @@ app.patch('/api/admin/users/admins/:id/password', requireServiceReady, auth, asy
         }
 
         const passwordHash = await bcrypt.hash(password, 10);
-        const admin = await Admin.findByIdAndUpdate(req.params.id, { passwordHash }, { new: true }).select('-passwordHash');
+        const admin = await Admin.findByIdAndUpdate(
+            req.params.id,
+            { passwordHash, lastActiveAt: new Date() },
+            { new: true }
+        ).select('-passwordHash');
 
         if (!admin) {
             return res.status(404).json({ success: false, message: 'Admin not found' });
         }
 
-        return res.json({ success: true, message: 'Admin password updated successfully.', admin });
+        await logAudit(req, {
+            action: 'user.admin.password.changed',
+            targetType: 'admin',
+            targetId: admin._id.toString(),
+            targetEmail: admin.email
+        });
+
+        return res.json({ success: true, message: 'Admin password updated successfully.', admin: toSafeAdmin(admin) });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to update admin password', error: error.message });
     }
 });
 
-// Analytics Endpoints
-app.get('/api/admin/analytics/summary', requireServiceReady, auth, async (req, res) => {
+// --- Analytics Endpoints ---
+
+app.get('/api/admin/analytics/summary', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
     try {
         const [totalAdmins, totalDoctors, totalPatients] = await Promise.all([
             Admin.countDocuments(),
@@ -297,7 +926,7 @@ app.get('/api/admin/analytics/summary', requireServiceReady, auth, async (req, r
     }
 });
 
-app.get('/api/admin/analytics/appointments', requireServiceReady, auth, async (req, res) => {
+app.get('/api/admin/analytics/appointments', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
     try {
         const byDay = await Appointment.aggregate([
             {
@@ -341,19 +970,20 @@ app.get('/api/admin/analytics/appointments', requireServiceReady, auth, async (r
     }
 });
 
-// User Management Endpoints
-app.get('/api/admin/users/doctors', requireServiceReady, auth, async (req, res) => {
+// --- Doctor and Patient Management ---
+
+app.get('/api/admin/users/doctors', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
     try {
         const doctorList = await Doctor.find().sort({ createdAt: -1 });
-        return res.json(doctorList);
+        return res.json(doctorList.map((doctor) => toSafeUser('doctor', doctor)));
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to fetch doctors', error: error.message });
     }
 });
 
-app.post('/api/admin/users/doctors', requireServiceReady, auth, async (req, res) => {
+app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { name, specialty, email, status } = req.body;
+        const { name, specialty, email, status, permissions } = req.body;
 
         if (!name || !email) {
             return res.status(400).json({ success: false, message: 'Name and email are required.' });
@@ -362,18 +992,41 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, async (req, res)
         if (status && !allowedUserStatuses.has(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid status. Allowed values: active, inactive, pending, verified, deactivated.'
+                message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
             });
+        }
+
+        if (permissions !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: permission.manage is required to assign permissions.'
+                });
+            }
+
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, message: 'permissions must be an array of strings.' });
+            }
         }
 
         const doctor = await Doctor.create({
             name,
             specialty: specialty || '',
-            email: email.toLowerCase(),
-            status: status || 'pending'
+            email: normalizeEmail(email),
+            status: status || 'pending',
+            permissions: Array.isArray(permissions) ? permissions : [],
+            lastActiveAt: new Date()
         });
 
-        return res.status(201).json({ success: true, doctor });
+        await logAudit(req, {
+            action: 'user.doctor.created',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email,
+            metadata: { status: doctor.status }
+        });
+
+        return res.status(201).json({ success: true, doctor: toSafeUser('doctor', doctor) });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Doctor');
 
@@ -385,29 +1038,47 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, async (req, res)
     }
 });
 
-app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
         const updates = {};
-        const { name, specialty, email, status } = req.body;
+        const { name, specialty, email, status, permissions } = req.body;
 
         if (name !== undefined) updates.name = name;
         if (specialty !== undefined) updates.specialty = specialty;
-        if (email !== undefined) updates.email = email.toLowerCase();
+        if (email !== undefined) updates.email = normalizeEmail(email);
 
         if (status !== undefined) {
             if (!allowedUserStatuses.has(status)) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Invalid status. Allowed values: active, inactive, pending, verified, deactivated.'
+                    message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
                 });
             }
 
             updates.status = status;
+            updates.deletedAt = status === 'deactivated' ? new Date() : null;
         }
+
+        if (permissions !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: permission.manage is required to update user permissions.'
+                });
+            }
+
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, message: 'permissions must be an array of strings.' });
+            }
+
+            updates.permissions = permissions;
+        }
+
+        updates.lastActiveAt = new Date();
 
         const doctor = await Doctor.findByIdAndUpdate(req.params.id, updates, { new: true });
 
@@ -415,7 +1086,15 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, async (req,
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
-        return res.json({ success: true, doctor });
+        await logAudit(req, {
+            action: 'user.doctor.updated',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email,
+            metadata: { updates: Object.keys(updates) }
+        });
+
+        return res.json({ success: true, doctor: toSafeUser('doctor', doctor) });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Doctor');
 
@@ -427,54 +1106,204 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, async (req,
     }
 });
 
-app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, requirePermission('doctor.verify'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, { status: 'verified' }, { new: true });
+        const doctor = await Doctor.findByIdAndUpdate(
+            req.params.id,
+            { status: 'verified', lastActiveAt: new Date(), deletedAt: null },
+            { new: true }
+        );
 
         if (!doctor) {
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
-        return res.json({ success: true, message: `Doctor ${doctor.name} verified successfully`, doctor });
+        await logAudit(req, {
+            action: 'user.doctor.verified',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email
+        });
+
+        return res.json({ success: true, message: `Doctor ${doctor.name} verified successfully`, doctor: toSafeUser('doctor', doctor) });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to verify doctor', error: error.message });
     }
 });
 
-app.patch('/api/admin/users/doctors/:id/deactivate', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/doctors/:id/deactivate', requireServiceReady, auth, requirePermission('user.deactivate'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, { status: 'deactivated' }, { new: true });
+        const doctor = await Doctor.findByIdAndUpdate(
+            req.params.id,
+            { status: 'deactivated', deletedAt: new Date(), lastActiveAt: new Date() },
+            { new: true }
+        );
 
         if (!doctor) {
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
-        return res.json({ success: true, message: `Doctor ${doctor.name} deactivated successfully`, doctor });
+        await logAudit(req, {
+            action: 'user.doctor.deactivated',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email
+        });
+
+        return res.json({ success: true, message: `Doctor ${doctor.name} deactivated successfully`, doctor: toSafeUser('doctor', doctor) });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to deactivate doctor', error: error.message });
     }
 });
 
-app.get('/api/admin/users/patients', requireServiceReady, auth, async (req, res) => {
+app.post('/api/admin/users/doctors/:id/documents', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
+    try {
+        if (!isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
+        }
+
+        const { type, url, notes } = req.body;
+
+        if (!type || !url) {
+            return res.status(400).json({ success: false, message: 'type and url are required for doctor documents.' });
+        }
+
+        const doctor = await Doctor.findById(req.params.id);
+
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor not found' });
+        }
+
+        doctor.documents.push({
+            type,
+            url,
+            notes: notes || '',
+            status: 'pending',
+            uploadedAt: new Date()
+        });
+        doctor.lastActiveAt = new Date();
+
+        await doctor.save();
+
+        const document = doctor.documents[doctor.documents.length - 1];
+
+        await logAudit(req, {
+            action: 'doctor.document.uploaded',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email,
+            metadata: { documentId: document._id.toString(), type: document.type }
+        });
+
+        return res.status(201).json({ success: true, doctor: toSafeUser('doctor', doctor), document });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to add doctor document', error: error.message });
+    }
+});
+
+app.patch('/api/admin/users/doctors/:id/documents/:documentId/verify', requireServiceReady, auth, requirePermission('doctor.verify'), async (req, res) => {
+    try {
+        if (!isValidObjectId(req.params.id) || !isValidObjectId(req.params.documentId)) {
+            return res.status(400).json({ success: false, message: 'Invalid doctor id or document id format' });
+        }
+
+        const doctor = await Doctor.findById(req.params.id);
+
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor not found' });
+        }
+
+        const document = doctor.documents.id(req.params.documentId);
+
+        if (!document) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        document.status = 'verified';
+        document.verifiedAt = new Date();
+        document.verifiedBy = req.adminProfile._id;
+        doctor.status = 'verified';
+        doctor.deletedAt = null;
+        doctor.lastActiveAt = new Date();
+        await doctor.save();
+
+        await logAudit(req, {
+            action: 'doctor.document.verified',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email,
+            metadata: { documentId: document._id.toString(), type: document.type }
+        });
+
+        return res.json({ success: true, message: 'Doctor document verified', doctor: toSafeUser('doctor', doctor), document });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to verify doctor document', error: error.message });
+    }
+});
+
+app.patch('/api/admin/users/doctors/:id/documents/:documentId/reject', requireServiceReady, auth, requirePermission('doctor.verify'), async (req, res) => {
+    try {
+        if (!isValidObjectId(req.params.id) || !isValidObjectId(req.params.documentId)) {
+            return res.status(400).json({ success: false, message: 'Invalid doctor id or document id format' });
+        }
+
+        const doctor = await Doctor.findById(req.params.id);
+
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor not found' });
+        }
+
+        const document = doctor.documents.id(req.params.documentId);
+
+        if (!document) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        document.status = 'rejected';
+        document.verifiedAt = new Date();
+        document.verifiedBy = req.adminProfile._id;
+        document.notes = req.body.notes || document.notes || '';
+        doctor.lastActiveAt = new Date();
+        await doctor.save();
+
+        await logAudit(req, {
+            action: 'doctor.document.rejected',
+            targetType: 'doctor',
+            targetId: doctor._id.toString(),
+            targetEmail: doctor.email,
+            metadata: {
+                documentId: document._id.toString(),
+                type: document.type,
+                notes: document.notes
+            }
+        });
+
+        return res.json({ success: true, message: 'Doctor document rejected', doctor: toSafeUser('doctor', doctor), document });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to reject doctor document', error: error.message });
+    }
+});
+
+app.get('/api/admin/users/patients', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
     try {
         const patientList = await Patient.find().sort({ createdAt: -1 });
-        return res.json(patientList);
+        return res.json(patientList.map((patient) => toSafeUser('patient', patient)));
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to fetch patients', error: error.message });
     }
 });
 
-app.post('/api/admin/users/patients', requireServiceReady, auth, async (req, res) => {
+app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { name, email, status } = req.body;
+        const { name, email, status, permissions } = req.body;
 
         if (!name || !email) {
             return res.status(400).json({ success: false, message: 'Name and email are required.' });
@@ -483,17 +1312,40 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, async (req, res
         if (status && !allowedUserStatuses.has(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid status. Allowed values: active, inactive, pending, verified, deactivated.'
+                message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
             });
+        }
+
+        if (permissions !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: permission.manage is required to assign permissions.'
+                });
+            }
+
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, message: 'permissions must be an array of strings.' });
+            }
         }
 
         const patient = await Patient.create({
             name,
-            email: email.toLowerCase(),
-            status: status || 'active'
+            email: normalizeEmail(email),
+            status: status || 'active',
+            permissions: Array.isArray(permissions) ? permissions : [],
+            lastActiveAt: new Date()
         });
 
-        return res.status(201).json({ success: true, patient });
+        await logAudit(req, {
+            action: 'user.patient.created',
+            targetType: 'patient',
+            targetId: patient._id.toString(),
+            targetEmail: patient.email,
+            metadata: { status: patient.status }
+        });
+
+        return res.status(201).json({ success: true, patient: toSafeUser('patient', patient) });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Patient');
 
@@ -505,28 +1357,46 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, async (req, res
     }
 });
 
-app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, async (req, res) => {
+app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, message: 'Invalid patient id format' });
         }
 
         const updates = {};
-        const { name, email, status } = req.body;
+        const { name, email, status, permissions } = req.body;
 
         if (name !== undefined) updates.name = name;
-        if (email !== undefined) updates.email = email.toLowerCase();
+        if (email !== undefined) updates.email = normalizeEmail(email);
 
         if (status !== undefined) {
             if (!allowedUserStatuses.has(status)) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Invalid status. Allowed values: active, inactive, pending, verified, deactivated.'
+                    message: 'Invalid status. Allowed values: active, inactive, pending, verified, suspended, deactivated.'
                 });
             }
 
             updates.status = status;
+            updates.deletedAt = status === 'deactivated' ? new Date() : null;
         }
+
+        if (permissions !== undefined) {
+            if (!req.adminPermissions.includes('*') && !req.adminPermissions.includes('permission.manage')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: permission.manage is required to update user permissions.'
+                });
+            }
+
+            if (!Array.isArray(permissions)) {
+                return res.status(400).json({ success: false, message: 'permissions must be an array of strings.' });
+            }
+
+            updates.permissions = permissions;
+        }
+
+        updates.lastActiveAt = new Date();
 
         const patient = await Patient.findByIdAndUpdate(req.params.id, updates, { new: true });
 
@@ -534,7 +1404,15 @@ app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, async (req
             return res.status(404).json({ success: false, message: 'Patient not found' });
         }
 
-        return res.json({ success: true, patient });
+        await logAudit(req, {
+            action: 'user.patient.updated',
+            targetType: 'patient',
+            targetId: patient._id.toString(),
+            targetEmail: patient.email,
+            metadata: { updates: Object.keys(updates) }
+        });
+
+        return res.json({ success: true, patient: toSafeUser('patient', patient) });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Patient');
 
@@ -546,8 +1424,58 @@ app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, async (req
     }
 });
 
-// Financial Tracking
-app.get('/api/admin/finance/transactions', requireServiceReady, auth, async (req, res) => {
+// --- Audit and Finance ---
+
+app.get('/api/admin/audit-logs', requireServiceReady, auth, requirePermission('audit.read'), async (req, res) => {
+    try {
+        const pagination = parsePagination(req.query);
+        const filter = {};
+
+        if (req.query.action) {
+            filter.action = req.query.action;
+        }
+
+        if (req.query.targetType) {
+            filter.targetType = req.query.targetType;
+        }
+
+        if (req.query.actorEmail) {
+            filter.actorEmail = new RegExp(req.query.actorEmail.trim(), 'i');
+        }
+
+        if (req.query.startDate || req.query.endDate) {
+            filter.createdAt = {};
+
+            if (req.query.startDate) {
+                filter.createdAt.$gte = new Date(req.query.startDate);
+            }
+
+            if (req.query.endDate) {
+                filter.createdAt.$lte = new Date(req.query.endDate);
+            }
+        }
+
+        const [items, total] = await Promise.all([
+            AuditLog.find(filter).sort({ createdAt: -1 }).skip(pagination.skip).limit(pagination.limit),
+            AuditLog.countDocuments(filter)
+        ]);
+
+        return res.json({
+            success: true,
+            pagination: {
+                page: pagination.page,
+                limit: pagination.limit,
+                total,
+                totalPages: Math.ceil(total / pagination.limit) || 1
+            },
+            logs: items
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to fetch audit logs', error: error.message });
+    }
+});
+
+app.get('/api/admin/finance/transactions', requireServiceReady, auth, requirePermission('finance.read'), async (req, res) => {
     try {
         const transactions = await Transaction.find().sort({ createdAt: -1 }).limit(200);
         return res.json(transactions);
@@ -555,6 +1483,8 @@ app.get('/api/admin/finance/transactions', requireServiceReady, auth, async (req
         return res.status(500).json({ success: false, message: 'Failed to fetch transactions', error: error.message });
     }
 });
+
+// --- Health and Metadata ---
 
 app.get('/health', (req, res) => {
     const readinessError = getServiceReadinessError();
@@ -572,7 +1502,19 @@ app.get('/health', (req, res) => {
 app.get('/api/admin/meta', (req, res) => {
     res.status(200).json({
         service: 'admin-analytics-service',
-        version: '1.0.0',
+        version: '2.0.0',
+        roleScope: {
+            admin: [
+                'Manage user accounts',
+                'Verify doctor registrations',
+                'Oversee platform operations',
+                'Monitor financial transactions'
+            ]
+        },
+        rbac: {
+            roles: RBAC,
+            notes: 'permissions from role + custom admin permissions are merged at runtime.'
+        },
         auth: {
             type: 'Bearer JWT',
             loginEndpoint: '/api/admin/login',
@@ -584,21 +1526,17 @@ app.get('/api/admin/meta', (req, res) => {
         endpoints: [
             { method: 'POST', path: '/api/admin/bootstrap', authRequired: false },
             { method: 'POST', path: '/api/admin/login', authRequired: false },
-            { method: 'GET', path: '/api/admin/users/admins', authRequired: true },
-            { method: 'POST', path: '/api/admin/users/admins', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/admins/:id/status', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/admins/:id/password', authRequired: true },
-            { method: 'GET', path: '/api/admin/analytics/summary', authRequired: true },
-            { method: 'GET', path: '/api/admin/analytics/appointments', authRequired: true },
-            { method: 'GET', path: '/api/admin/users/doctors', authRequired: true },
-            { method: 'POST', path: '/api/admin/users/doctors', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/doctors/:id', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/doctors/:id/verify', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/doctors/:id/deactivate', authRequired: true },
-            { method: 'GET', path: '/api/admin/users/patients', authRequired: true },
-            { method: 'POST', path: '/api/admin/users/patients', authRequired: true },
-            { method: 'PATCH', path: '/api/admin/users/patients/:id', authRequired: true },
-            { method: 'GET', path: '/api/admin/finance/transactions', authRequired: true }
+            { method: 'GET', path: '/api/admin/users', authRequired: true, permission: 'user.read' },
+            { method: 'GET', path: '/api/admin/users/:role/:id/profile', authRequired: true, permission: 'user.read' },
+            { method: 'PATCH', path: '/api/admin/users/:role/:id', authRequired: true, permission: 'user.update' },
+            { method: 'PATCH', path: '/api/admin/users/:role/:id/status', authRequired: true, permission: 'user.deactivate' },
+            { method: 'DELETE', path: '/api/admin/users/:role/:id', authRequired: true, permission: 'user.delete' },
+            { method: 'PATCH', path: '/api/admin/users/doctors/:id/verify', authRequired: true, permission: 'doctor.verify' },
+            { method: 'POST', path: '/api/admin/users/doctors/:id/documents', authRequired: true, permission: 'user.update' },
+            { method: 'PATCH', path: '/api/admin/users/doctors/:id/documents/:documentId/verify', authRequired: true, permission: 'doctor.verify' },
+            { method: 'GET', path: '/api/admin/audit-logs', authRequired: true, permission: 'audit.read' },
+            { method: 'GET', path: '/api/admin/analytics/summary', authRequired: true, permission: 'analytics.read' },
+            { method: 'GET', path: '/api/admin/finance/transactions', authRequired: true, permission: 'finance.read' }
         ]
     });
 });
