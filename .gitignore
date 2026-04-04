@@ -38,3 +38,6 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+# Frontend workspace
+frontend/
