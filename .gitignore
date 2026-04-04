@@ -41,3 +41,19 @@ Thumbs.db
 
 # Frontend workspace
 frontend/
+
+# Repo layout after reorganization
+micro-services/**/.env
+micro-services/**/.env.local
+micro-services/**/.env.development
+micro-services/**/.env.production
+micro-services/**/.env.test
+micro-services/**/.env.*.local
+micro-services/**/uploads/
+micro-services/**/tmp/
+micro-services/**/temp/
+micro-services/**/cache/
+micro-services/**/logs/
+micro-services/**/coverage/
+micro-services/**/dist/
+micro-services/**/build/
