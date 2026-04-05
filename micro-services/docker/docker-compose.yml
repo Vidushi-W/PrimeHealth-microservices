@@ -3,20 +3,14 @@ services:
     build: ../services/admin-analytics-service
     ports:
       - "5001:5001"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       - PORT=5001
       - MONGO_URI=${ADMIN_MONGO_URI:-mongodb://mongodb:27017/admin_analytics}
       - JWT_SECRET=${JWT_SECRET}
-    depends_on:
-      - mongodb
-
-  telemedicine-service:
-    build: ../services/telemedicine-service
-    ports:
-      - "5002:5002"
-    environment:
-      - PORT=5002
-      - MONGO_URI=${TELEMEDICINE_MONGO_URI:-mongodb://mongodb:27017/telemedicine}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
     depends_on:
       - mongodb
 

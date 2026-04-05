@@ -32,15 +32,29 @@ coverage/
 .vite/
 .npm/
 .pnpm-store/
+.turbo/
+.history/
 
 # OS and editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
 
 # Frontend workspace
 frontend/
+Frontend_UI/.env.local
+Frontend_UI/.env.development.local
+Frontend_UI/.env.production.local
+Frontend_UI/.env.test.local
+Frontend_UI/dist/
 
 # Repo layout after reorganization
 micro-services/**/.env
@@ -57,3 +71,9 @@ micro-services/**/logs/
 micro-services/**/coverage/
 micro-services/**/dist/
 micro-services/**/build/
+micro-services/**/.DS_Store
+
+# Docker local overrides
+docker-compose.override.yml
+micro-services/docker/docker-compose.override.yml
+micro-services/docker/.env

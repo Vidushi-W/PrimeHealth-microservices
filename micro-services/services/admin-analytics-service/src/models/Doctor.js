@@ -6,6 +6,7 @@ const doctorSchema = new mongoose.Schema(
         specialty: { type: String, default: '' },
         status: { type: String, default: 'pending' },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+        passwordHash: { type: String, default: '' },
         permissions: { type: [String], default: [] },
         documents: [
             {
@@ -18,6 +19,9 @@ const doctorSchema = new mongoose.Schema(
                 verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null }
             }
         ],
+        lastLoginAt: { type: Date, default: null },
+        lastLoginIp: { type: String, default: '' },
+        lastLoginUserAgent: { type: String, default: '' },
         lastActiveAt: { type: Date, default: Date.now },
         deletedAt: { type: Date, default: null }
     },

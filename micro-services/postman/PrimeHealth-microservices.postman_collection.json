@@ -1,1015 +1,116 @@
 {
   "info": {
     "_postman_id": "8b5a4a6a-2649-4e95-9f95-bf0d8f15d111",
-    "name": "PrimeHealth Microservices",
+    "name": "PrimeHealth - Base Admin Microservice",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Collection for PrimeHealth microservices. Admin analytics requests are ready. Telemedicine folder is intentionally empty for now."
+    "description": "Centralized auth + admin management through admin-analytics-service."
   },
   "item": [
     {
-      "name": "Admin Analytics Service",
+      "name": "00. Health",
+      "item": [
+        { "name": "Root", "request": { "method": "GET", "url": "{{adminBaseUrl}}/" }, "response": [] },
+        { "name": "Health", "request": { "method": "GET", "url": "{{adminBaseUrl}}/health" }, "response": [] },
+        { "name": "Meta", "request": { "method": "GET", "url": "{{adminBaseUrl}}/api/admin/meta" }, "response": [] }
+      ]
+    },
+    {
+      "name": "01. Public Auth",
       "item": [
         {
-          "name": "Root",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                ""
-              ]
-            },
-            "description": "Service entry endpoint."
-          },
-          "response": []
-        },
-        {
-          "name": "Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/health",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "health"
-              ]
-            },
-            "description": "Health check endpoint."
-          },
-          "response": []
-        },
-        {
-          "name": "Meta",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/meta",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "meta"
-              ]
-            },
-            "description": "API metadata and endpoint catalog."
-          },
-          "response": []
-        },
-        {
-          "name": "Bootstrap First Admin",
+          "name": "Register Admin",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@primehealth.com\",\n  \"password\": \"password123\",\n  \"role\": \"admin\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/bootstrap",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "bootstrap"
-              ]
-            },
-            "description": "Creates the first admin only when no admin exists in DB."
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{newAdminEmail}}\",\n  \"password\": \"{{newAdminPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
           },
           "response": []
         },
         {
-          "name": "Login (Get Token)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "if (json && json.token) {",
-                  "    pm.collectionVariables.set('adminToken', json.token);",
-                  "}"
-                ]
-              }
-            }
-          ],
+          "name": "Register Doctor",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@primehealth.com\",\n  \"password\": \"password123\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/login",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "login"
-              ]
-            },
-            "description": "Authenticates admin and stores JWT in collection variable adminToken."
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"doctor\",\n  \"name\": \"{{doctorName}}\",\n  \"specialty\": \"{{doctorSpecialty}}\",\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
           },
           "response": []
         },
         {
-          "name": "Analytics Summary (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/analytics/summary",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "analytics",
-                "summary"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Analytics Appointments (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/analytics/appointments",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "analytics",
-                "appointments"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Admins (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/admins",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "admins"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Admin (Protected)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.admin && json.admin._id) {",
-                  "    pm.collectionVariables.set('managedAdminId', json.admin._id);",
-                  "}"
-                ]
-              }
-            }
-          ],
+          "name": "Register Patient",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"new.admin@primehealth.com\",\n  \"password\": \"password123\",\n  \"role\": \"admin\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/admins",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "admins"
-              ]
-            }
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"patient\",\n  \"name\": \"{{patientName}}\",\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
           },
           "response": []
         },
         {
-          "name": "Update Admin Status (Protected)",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"inactive\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/admins/{{managedAdminId}}/status",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "admins",
-                "{{managedAdminId}}",
-                "status"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Doctors (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/doctors",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "doctors"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Doctor (Protected)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.doctor && json.doctor._id) {",
-                  "    pm.collectionVariables.set('doctorId', json.doctor._id);",
-                  "}"
-                ]
-              }
-            }
-          ],
+          "name": "Login Admin (Store Token)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const json = pm.response.json();", "pm.test('Status 200', function () { pm.response.to.have.status(200); });", "if (json && json.token) { pm.collectionVariables.set('adminToken', json.token); }"] } }],
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Dr. Test User\",\n  \"specialty\": \"Cardiology\",\n  \"email\": \"doctor.test@primehealth.com\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/doctors",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "doctors"
-              ]
-            }
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
           },
           "response": []
         },
         {
-          "name": "Verify Doctor (Protected)",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/verify",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "doctors",
-                "{{doctorId}}",
-                "verify"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Deactivate Doctor (Protected)",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/deactivate",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "doctors",
-                "{{doctorId}}",
-                "deactivate"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Patients (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/patients",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "patients"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Patient (Protected)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.patient && json.patient._id) {",
-                  "    pm.collectionVariables.set('patientId', json.patient._id);",
-                  "}"
-                ]
-              }
-            }
-          ],
+          "name": "Login Doctor",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Patient Test\",\n  \"email\": \"patient.test@primehealth.com\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/patients",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "patients"
-              ]
-            }
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"doctor\",\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
           },
           "response": []
         },
         {
-          "name": "Update Patient Status (Protected)",
+          "name": "Login Patient",
           "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"inactive\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users/patients/{{patientId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "users",
-                "patients",
-                "{{patientId}}"
-              ]
-            }
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"patient\",\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
           },
           "response": []
-        },
-        {
-          "name": "Transactions (Protected)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/finance/transactions",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "admin",
-                "finance",
-                "transactions"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "RBAC and Audit Management",
-          "item": [
-            {
-              "name": "Advanced Users - List (All Roles)",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users"
-                  ],
-                  "query": [
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    },
-                    {
-                      "key": "sortBy",
-                      "value": "createdAt"
-                    },
-                    {
-                      "key": "sortOrder",
-                      "value": "desc"
-                    }
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Advanced Users - List Doctors (Filtered)",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users?role=doctor&status=pending&search=Dr&page=1&limit=20&sortBy=createdAt&sortOrder=desc",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users"
-                  ],
-                  "query": [
-                    {
-                      "key": "role",
-                      "value": "doctor"
-                    },
-                    {
-                      "key": "status",
-                      "value": "pending"
-                    },
-                    {
-                      "key": "search",
-                      "value": "Dr"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    },
-                    {
-                      "key": "sortBy",
-                      "value": "createdAt"
-                    },
-                    {
-                      "key": "sortOrder",
-                      "value": "desc"
-                    }
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "User Profile with Activity",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/profile?activityLimit=50",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "{{managedRole}}",
-                    "{{managedUserId}}",
-                    "profile"
-                  ],
-                  "query": [
-                    {
-                      "key": "activityLimit",
-                      "value": "50"
-                    }
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Update User (Role, Permissions, Status)",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"status\": \"active\",\n  \"permissions\": [\"user.read\", \"audit.read\"],\n  \"adminRole\": \"operations_admin\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "{{managedRole}}",
-                    "{{managedUserId}}"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Change User Status",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"status\": \"suspended\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/status",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "{{managedRole}}",
-                    "{{managedUserId}}",
-                    "status"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Deactivate User",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}/deactivate",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "{{managedRole}}",
-                    "{{managedUserId}}",
-                    "deactivate"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Delete User (Hard Delete)",
-              "request": {
-                "method": "DELETE",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/{{managedRole}}/{{managedUserId}}?confirm=DELETE",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "{{managedRole}}",
-                    "{{managedUserId}}"
-                  ],
-                  "query": [
-                    {
-                      "key": "confirm",
-                      "value": "DELETE"
-                    }
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Upload Doctor Document",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const json = pm.response.json();",
-                      "if (json && json.document && json.document._id) {",
-                      "    pm.collectionVariables.set('doctorDocumentId', json.document._id);",
-                      "}"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"type\": \"medical_license\",\n  \"url\": \"https://example.com/docs/license.pdf\",\n  \"notes\": \"Initial submission\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "doctors",
-                    "{{doctorId}}",
-                    "documents"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Verify Doctor Document",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents/{{doctorDocumentId}}/verify",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "doctors",
-                    "{{doctorId}}",
-                    "documents",
-                    "{{doctorDocumentId}}",
-                    "verify"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Reject Doctor Document",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"notes\": \"Document is unclear. Please upload a higher resolution copy.\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/users/doctors/{{doctorId}}/documents/{{doctorDocumentId}}/reject",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "users",
-                    "doctors",
-                    "{{doctorId}}",
-                    "documents",
-                    "{{doctorDocumentId}}",
-                    "reject"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Audit Logs",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{adminToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/admin/audit-logs?page=1&limit=50&targetType=doctor",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "admin",
-                    "audit-logs"
-                  ],
-                  "query": [
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "50"
-                    },
-                    {
-                      "key": "targetType",
-                      "value": "doctor"
-                    }
-                  ]
-                }
-              },
-              "response": []
-            }
-          ]
         }
       ]
     },
     {
-      "name": "Telemedicine Service",
-      "item": [],
-      "description": "Intentionally left empty for now. Add telemedicine requests when requirements are finalized."
+      "name": "02. Admin Protected",
+      "item": [
+        { "name": "Analytics Summary", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/analytics/summary" }, "response": [] },
+        { "name": "Analytics Appointments", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/analytics/appointments" }, "response": [] },
+        { "name": "Users", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/users?page=1&limit=20" }, "response": [] },
+        { "name": "Audit Logs", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/audit-logs?page=1&limit=20" }, "response": [] },
+        { "name": "Finance Transactions", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/finance/transactions" }, "response": [] }
+      ]
+    },
+    {
+      "name": "03. Error Checks",
+      "item": [
+        { "name": "Invalid Login", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"wrong-pass\"\n}" }, "url": "{{adminBaseUrl}}/api/auth/login" }, "response": [] },
+        { "name": "Protected Without Token", "request": { "method": "GET", "url": "{{adminBaseUrl}}/api/admin/analytics/summary" }, "response": [] }
+      ]
     }
   ],
   "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:5001"
-    },
-    {
-      "key": "adminToken",
-      "value": ""
-    },
-    {
-      "key": "doctorId",
-      "value": ""
-    },
-    {
-      "key": "patientId",
-      "value": ""
-    },
-    {
-      "key": "managedAdminId",
-      "value": ""
-    },
-    {
-      "key": "managedRole",
-      "value": "admin"
-    },
-    {
-      "key": "managedUserId",
-      "value": ""
-    },
-    {
-      "key": "doctorDocumentId",
-      "value": ""
-    }
+    { "key": "adminBaseUrl", "value": "http://localhost:5001" },
+    { "key": "adminEmail", "value": "admin@primehealth.local" },
+    { "key": "adminPassword", "value": "Admin@12345" },
+    { "key": "newAdminEmail", "value": "admin.new@primehealth.local" },
+    { "key": "newAdminPassword", "value": "Admin@12345" },
+    { "key": "doctorName", "value": "Dr. Auth User" },
+    { "key": "doctorSpecialty", "value": "General Medicine" },
+    { "key": "doctorEmail", "value": "doctor.auth@primehealth.local" },
+    { "key": "doctorPassword", "value": "Doctor@123" },
+    { "key": "patientName", "value": "Patient Auth" },
+    { "key": "patientEmail", "value": "patient.auth@primehealth.local" },
+    { "key": "patientPassword", "value": "Patient@123" },
+    { "key": "adminToken", "value": "" }
   ]
 }

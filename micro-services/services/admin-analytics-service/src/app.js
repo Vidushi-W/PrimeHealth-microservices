@@ -19,6 +19,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 app.use(cors());
 app.use(express.json());
@@ -75,13 +76,41 @@ const managedRoleConfig = {
     patient: { model: Patient, searchFields: ['name', 'email'] }
 };
 
+const authRoleConfig = {
+    admin: { model: Admin, defaultStatus: 'active' },
+    doctor: { model: Doctor, defaultStatus: 'active' },
+    patient: { model: Patient, defaultStatus: 'active' }
+};
+
 const allowedUserStatuses = new Set(['active', 'inactive', 'pending', 'verified', 'suspended', 'deactivated']);
 const allowedSortFields = new Set(['createdAt', 'updatedAt', 'name', 'email', 'status', 'lastActiveAt', 'lastLoginAt']);
 const allowedAdminRoles = new Set(Object.keys(RBAC));
+const allowedAuthRoles = new Set(Object.keys(authRoleConfig));
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const normalizeEmail = (email) => (typeof email === 'string' ? email.toLowerCase().trim() : '');
+
+const sanitizeUserDoc = (userDoc) => {
+    if (!userDoc) {
+        return null;
+    }
+
+    const raw = userDoc.toObject ? userDoc.toObject() : { ...userDoc };
+    delete raw.passwordHash;
+    return raw;
+};
+
+const issueAuthToken = (payload) =>
+    jwt.sign(
+        payload,
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+    );
+
+const isAuthRoleAllowed = (role) => allowedAuthRoles.has(role);
+
+const getAuthModel = (role) => authRoleConfig[role]?.model || null;
 
 const parseDuplicateKeyError = (error, entityName) => {
     if (error && error.code === 11000) {
@@ -108,11 +137,7 @@ const toSafeUser = (role, userDoc) => {
         return null;
     }
 
-    const raw = userDoc.toObject ? userDoc.toObject() : userDoc;
-
-    if (role === 'admin') {
-        delete raw.passwordHash;
-    }
+    const raw = sanitizeUserDoc(userDoc);
 
     return {
         ...raw,
@@ -313,6 +338,143 @@ app.post('/api/admin/bootstrap', requireServiceReady, async (req, res) => {
     }
 });
 
+app.post('/api/auth/register', requireServiceReady, async (req, res) => {
+    try {
+        const { role, email, password, name, specialty } = req.body;
+
+        if (!role || !isAuthRoleAllowed(role)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid role. Allowed values: admin, doctor, patient.'
+            });
+        }
+
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'Email and password are required.' });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
+        }
+
+        if ((role === 'doctor' || role === 'patient') && !name) {
+            return res.status(400).json({ success: false, message: 'Name is required for doctor and patient registration.' });
+        }
+
+        const model = getAuthModel(role);
+        const passwordHash = await bcrypt.hash(password, 10);
+        const commonFields = {
+            email: normalizeEmail(email),
+            passwordHash,
+            status: authRoleConfig[role].defaultStatus,
+            lastActiveAt: new Date()
+        };
+
+        let createdUser;
+
+        if (role === 'admin') {
+            createdUser = await model.create({
+                ...commonFields,
+                role: 'admin',
+                permissions: []
+            });
+        } else if (role === 'doctor') {
+            createdUser = await model.create({
+                ...commonFields,
+                name,
+                specialty: specialty || '',
+                permissions: []
+            });
+        } else {
+            createdUser = await model.create({
+                ...commonFields,
+                name,
+                permissions: []
+            });
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: `${role} account registered successfully.`,
+            user: role === 'admin' ? toSafeAdmin(createdUser) : toSafeUser(role, createdUser)
+        });
+    } catch (error) {
+        const duplicateMessage = parseDuplicateKeyError(error, 'User');
+
+        if (duplicateMessage) {
+            return res.status(409).json({ success: false, message: duplicateMessage });
+        }
+
+        return res.status(500).json({ success: false, message: 'Registration failed', error: error.message });
+    }
+});
+
+app.post('/api/auth/login', requireServiceReady, async (req, res) => {
+    try {
+        const { role, email, password } = req.body;
+
+        if (!role || !isAuthRoleAllowed(role)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid role. Allowed values: admin, doctor, patient.'
+            });
+        }
+
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'Email and password are required.' });
+        }
+
+        const model = getAuthModel(role);
+        const user = await model.findOne({ email: normalizeEmail(email) });
+
+        if (!user || !user.passwordHash) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        if (!['active', 'verified'].includes(user.status)) {
+            return res.status(403).json({ success: false, message: `Account is ${user.status}. Access denied.` });
+        }
+
+        const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+
+        if (!isPasswordValid) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        const now = new Date();
+        user.lastLoginAt = now;
+        user.lastActiveAt = now;
+        user.lastLoginIp = getClientIp(req);
+        user.lastLoginUserAgent = req.headers['user-agent'] || '';
+        await user.save();
+
+        const tokenPayload = {
+            id: user._id.toString(),
+            roleType: role,
+            role: role === 'admin' ? user.role || 'admin' : role
+        };
+        const token = issueAuthToken(tokenPayload);
+
+        if (role === 'admin') {
+            await logAuditForActor(req, user, {
+                action: 'admin.login',
+                targetType: 'admin',
+                targetId: user._id.toString(),
+                targetEmail: user.email
+            });
+        }
+
+        return res.json({
+            success: true,
+            token,
+            role,
+            user: role === 'admin' ? toSafeAdmin(user) : toSafeUser(role, user)
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Login failed', error: error.message });
+    }
+});
+
 app.post('/api/admin/login', requireServiceReady, async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -347,14 +509,10 @@ app.post('/api/admin/login', requireServiceReady, async (req, res) => {
         admin.lastLoginUserAgent = req.headers['user-agent'] || '';
         await admin.save();
 
-        const token = jwt.sign(
-            {
-                id: admin._id.toString(),
-                role: admin.role || 'admin'
-            },
-            JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        const token = issueAuthToken({
+            id: admin._id.toString(),
+            role: admin.role || 'admin'
+        });
 
         await logAuditForActor(req, admin, {
             action: 'admin.login',
@@ -983,7 +1141,7 @@ app.get('/api/admin/users/doctors', requireServiceReady, auth, requirePermission
 
 app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { name, specialty, email, status, permissions } = req.body;
+        const { name, specialty, email, status, permissions, password } = req.body;
 
         if (!name || !email) {
             return res.status(400).json({ success: false, message: 'Name and email are required.' });
@@ -1009,11 +1167,23 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermissio
             }
         }
 
+        if (password !== undefined) {
+            if (typeof password !== 'string' || password.length < 8) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Password must be at least 8 characters long when provided.'
+                });
+            }
+        }
+
+        const passwordHash = password ? await bcrypt.hash(password, 10) : '';
+
         const doctor = await Doctor.create({
             name,
             specialty: specialty || '',
             email: normalizeEmail(email),
             status: status || 'pending',
+            passwordHash,
             permissions: Array.isArray(permissions) ? permissions : [],
             lastActiveAt: new Date()
         });
@@ -1303,7 +1473,7 @@ app.get('/api/admin/users/patients', requireServiceReady, auth, requirePermissio
 
 app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { name, email, status, permissions } = req.body;
+        const { name, email, status, permissions, password } = req.body;
 
         if (!name || !email) {
             return res.status(400).json({ success: false, message: 'Name and email are required.' });
@@ -1329,10 +1499,22 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermissi
             }
         }
 
+        if (password !== undefined) {
+            if (typeof password !== 'string' || password.length < 8) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Password must be at least 8 characters long when provided.'
+                });
+            }
+        }
+
+        const passwordHash = password ? await bcrypt.hash(password, 10) : '';
+
         const patient = await Patient.create({
             name,
             email: normalizeEmail(email),
             status: status || 'active',
+            passwordHash,
             permissions: Array.isArray(permissions) ? permissions : [],
             lastActiveAt: new Date()
         });
@@ -1517,13 +1699,16 @@ app.get('/api/admin/meta', (req, res) => {
         },
         auth: {
             type: 'Bearer JWT',
-            loginEndpoint: '/api/admin/login',
+            loginEndpoint: '/api/auth/login',
+            registerEndpoint: '/api/auth/register',
             header: 'Authorization: Bearer <token>',
             notes: 'JWT_SECRET must be provided in environment variables.'
         },
         dataSource: 'MongoDB',
         mongoRequirement: 'MONGO_URI must point to an active MongoDB instance (Atlas or local).',
         endpoints: [
+            { method: 'POST', path: '/api/auth/register', authRequired: false },
+            { method: 'POST', path: '/api/auth/login', authRequired: false },
             { method: 'POST', path: '/api/admin/bootstrap', authRequired: false },
             { method: 'POST', path: '/api/admin/login', authRequired: false },
             { method: 'GET', path: '/api/admin/users', authRequired: true, permission: 'user.read' },
@@ -1549,7 +1734,8 @@ app.get('/', (req, res) => {
         status: readinessError ? 'running-with-errors' : 'running',
         health: '/health',
         meta: '/api/admin/meta',
-        login: '/api/admin/login',
+        login: '/api/auth/login',
+        register: '/api/auth/register',
         data: 'mongodb-only',
         message: readinessError
     });
