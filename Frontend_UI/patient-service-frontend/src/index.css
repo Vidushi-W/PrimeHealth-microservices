@@ -1,19 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* Slate Gray color palette */
-  --color-bg: lightblue;        /* User requested light blue bg */
-  --color-surface: #1e293b;   /* slate-800 */
-  --color-surface-hover: #334155; /* slate-700 */
-  --color-border: #334155;
+  /* Sleek modern light color palette */
+  --color-bg: #f1f5f9;        /* slate-100 */
+  --color-surface: #ffffff;   /* white */
+  --color-surface-hover: #f8fafc; /* slate-50 */
+  --color-border: #cbd5e1;    /* slate-300 */
   
   /* Deep Blue accent */
   --color-primary: #2563eb;   /* blue-600 */
   --color-primary-hover: #1d4ed8; /* blue-700 */
   
   /* Text */
-  --color-text: #f8fafc;      /* slate-50 */
-  --color-text-muted: #94a3b8; /* slate-400 */
+  --color-text: #0f172a;      /* slate-900 */
+  --color-text-muted: #64748b; /* slate-500 */
   
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -36,12 +36,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Glassmorphism utility */
+/* Sleek light glassmorphism utility */
 .glass {
-  background: rgba(30, 41, 59, 0.7);
+  background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); /* Soft drop shadow */
 }
 
 .btn {
