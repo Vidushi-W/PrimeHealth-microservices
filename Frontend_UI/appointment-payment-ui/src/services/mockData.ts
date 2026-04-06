@@ -104,3 +104,56 @@ export const mockSlots: DoctorSlot[] = [
         pricingType: 'Standard'
     }
 ];
+export const mockTodayAppointments = [
+    {
+        id: 'TKT-001',
+        patientName: 'John Doe',
+        time: '09:00 AM',
+        status: 'Completed',
+        type: 'General Checkup',
+        fee: 2500
+    },
+    {
+        id: 'TKT-002',
+        patientName: 'Jane Smith',
+        time: '09:30 AM',
+        status: 'Completed',
+        type: 'Heart Review',
+        fee: 3000
+    },
+    {
+        id: 'TKT-003',
+        patientName: 'Alex Johnson',
+        time: '10:00 AM',
+        status: 'In Consultation',
+        type: 'Follow-up',
+        fee: 2500
+    },
+    {
+        id: 'TKT-004',
+        patientName: 'Michael Brown',
+        time: '10:30 AM',
+        status: 'Waiting',
+        type: 'Echo Test',
+        fee: 5000
+    },
+    {
+        id: 'TKT-005',
+        patientName: 'Sarah Davis',
+        time: '11:00 AM',
+        status: 'Waiting',
+        type: 'ECG Analysis',
+        fee: 2500
+    }
+];
+
+export const mockEarnings = {
+    dailyTotal: 16000,
+    monthlyTotal: 450000,
+    pendingSettlement: 12500,
+    history: [
+        { date: '2026-03-27', amount: 18500, appointments: 8 },
+        { date: '2026-03-26', amount: 22000, appointments: 10 },
+        { date: '2026-03-25', amount: 15500, appointments: 6 }
+    ]
+};
