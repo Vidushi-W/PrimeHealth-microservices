@@ -2,7 +2,7 @@
 
 services:
   api-gateway:
-    build: ./api-gateway
+    build: ../services/api-gateway
     ports:
       - "3000:3000"
     depends_on:
@@ -10,21 +10,21 @@ services:
       - patient-service
 
   auth-service:
-    build: ./auth-service
+    build: ../services/auth-service
     ports:
       - "3001:3001"
 
   patient-service:
-    build: ./patient-service
+    build: ../services/patient-service
     ports:
       - "3002:3002"
 
   appointment-service:
-    build: ./appointment-service
+    build: ../services/appointment-service
     ports:
       - "3003:3003"
 
   notification-service:
-    build: ./notification-service
+    build: ../services/notification-service
     ports:
       - "3004:3004"
