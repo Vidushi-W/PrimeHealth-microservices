@@ -7,9 +7,9 @@
   --color-surface-hover: #334155; /* slate-700 */
   --color-border: #334155;
   
-  /* Vibrant Green accent */
-  --color-primary: #10b981;   /* emerald-500 */
-  --color-primary-hover: #059669; /* emerald-600 */
+  /* Deep Blue accent */
+  --color-primary: #2563eb;   /* blue-600 */
+  --color-primary-hover: #1d4ed8; /* blue-700 */
   
   /* Text */
   --color-text: #f8fafc;      /* slate-50 */
@@ -61,13 +61,13 @@ body {
 .btn-primary {
   background-color: var(--color-primary);
   color: #fff;
-  box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);
+  box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.39);
 }
 
 .btn-primary:hover {
   background-color: var(--color-primary-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px 0 rgba(16, 185, 129, 0.5);
+  box-shadow: 0 6px 20px 0 rgba(37, 99, 235, 0.5);
 }
 
 /* Animations */
@@ -117,9 +117,9 @@ body {
 }
 
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 
 .navbar-links {
