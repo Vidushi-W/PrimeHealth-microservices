@@ -11,7 +11,7 @@
 }
 
 .dashboard-header p {
-  color: var(--color-text-muted);
+  color: #334155;
   margin-bottom: 1.5rem;
   font-size: 1.1rem;
 }
