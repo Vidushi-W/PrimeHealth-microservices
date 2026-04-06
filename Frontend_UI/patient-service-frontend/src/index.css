@@ -2,7 +2,7 @@
 
 :root {
   /* Slate Gray color palette */
-  --color-bg: #0f172a;        /* slate-900 */
+  --color-bg: lightblue;        /* User requested light blue bg */
   --color-surface: #1e293b;   /* slate-800 */
   --color-surface-hover: #334155; /* slate-700 */
   --color-border: #334155;
