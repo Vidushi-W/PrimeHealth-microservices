@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
+const { getNextUniqueIdForRole } = require('../utils/uniqueUserId');
 
 const adminSchema = new mongoose.Schema(
     {
+        uniqueId: { type: String, unique: true, sparse: true, trim: true },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true },
         passwordHash: { type: String, required: true },
         role: { type: String, default: 'admin' },
@@ -15,5 +17,17 @@ const adminSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
+
+adminSchema.pre('validate', async function assignAdminUniqueId(next) {
+    try {
+        if (this.isNew && !this.uniqueId) {
+            this.uniqueId = await getNextUniqueIdForRole('admin');
+        }
+
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
 
 module.exports = mongoose.model('Admin', adminSchema);

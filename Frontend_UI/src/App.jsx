@@ -9,6 +9,7 @@ const defaultData = {
   appointments: null,
   users: [],
   doctors: [],
+  patients: [],
   audits: [],
   transactions: []
 };
@@ -79,7 +80,8 @@ export default function App() {
 
   const request = async (path, options = {}, needsAuth = true, tokenOverride = '') => {
     const headers = { ...(options.headers || {}) };
-    const activeToken = tokenOverride || auth.token;
+    const tokenFromOverride = typeof tokenOverride === 'string' ? tokenOverride.trim() : '';
+    const activeToken = tokenFromOverride || auth.token;
     if (needsAuth && activeToken) headers.Authorization = `Bearer ${activeToken}`;
 
     const normalizedBaseUrl = auth.baseUrl.trim().replace(/\/+$/, '');
@@ -115,15 +117,18 @@ export default function App() {
       setUi((u) => ({ ...u, loading: true }));
       setGlobal('Refreshing data...');
 
-      const [health, meta, summary, appointments, usersRes, doctors, auditsRes, transactions] = await Promise.all([
+      const safeTokenOverride = typeof tokenOverride === 'string' ? tokenOverride : '';
+
+      const [health, meta, summary, appointments, usersRes, doctors, patients, auditsRes, transactions] = await Promise.all([
         request('/health', {}, false),
         request('/api/admin/meta', {}, false),
-        request('/api/admin/analytics/summary', {}, true, tokenOverride),
-        request('/api/admin/analytics/appointments', {}, true, tokenOverride),
-        request('/api/admin/users?page=1&limit=20&sortBy=createdAt&sortOrder=desc', {}, true, tokenOverride),
-        request('/api/admin/users/doctors', {}, true, tokenOverride),
-        request('/api/admin/audit-logs?page=1&limit=20', {}, true, tokenOverride),
-        request('/api/admin/finance/transactions', {}, true, tokenOverride)
+        request('/api/admin/analytics/summary', {}, true, safeTokenOverride),
+        request('/api/admin/analytics/appointments', {}, true, safeTokenOverride),
+        request('/api/admin/users?page=1&limit=20&sortBy=createdAt&sortOrder=desc', {}, true, safeTokenOverride),
+        request('/api/admin/users/doctors', {}, true, safeTokenOverride),
+        request('/api/admin/users/patients', {}, true, safeTokenOverride),
+        request('/api/admin/audit-logs?page=1&limit=20', {}, true, safeTokenOverride),
+        request('/api/admin/finance/transactions', {}, true, safeTokenOverride)
       ]);
 
       setData({
@@ -133,6 +138,7 @@ export default function App() {
         appointments,
         users: usersRes?.users || [],
         doctors: doctors || [],
+        patients: patients || [],
         audits: auditsRes?.logs || [],
         transactions: transactions || []
       });
@@ -364,7 +370,7 @@ export default function App() {
             </div>
             <div className="topbar-actions" role="group" aria-label="Dashboard actions">
               <button 
-                onClick={refreshAll} 
+                onClick={() => refreshAll()} 
                 disabled={ui.loading}
                 aria-busy={ui.loading}
                 aria-label="Refresh dashboard data"
@@ -387,7 +393,7 @@ export default function App() {
 
           <div className="layout">
             <nav className="sidebar" aria-label="Dashboard sections">
-              {['overview', 'analytics', 'users', 'doctor', 'audit', 'finance'].map((v) => (
+              {['overview', 'analytics', 'users', 'doctor', 'patients', 'audit', 'finance'].map((v) => (
                 <button 
                   key={v} 
                   className={`nav-btn ${ui.view === v ? 'active' : ''}`} 
@@ -456,7 +462,7 @@ export default function App() {
                           <option value="patient">Patient</option>
                         </select>
                         <label htmlFor="status-id">User ID <span aria-label="required">*</span></label>
-                        <input id="status-id" placeholder="Enter user ID" value={statusForm.id} onChange={(e) => setStatusForm((s) => ({ ...s, id: e.target.value }))} required aria-required="true" />
+                        <input id="status-id" placeholder="Enter ID (e.g., DOC001, PAT001, ADM001)" value={statusForm.id} onChange={(e) => setStatusForm((s) => ({ ...s, id: e.target.value }))} required aria-required="true" />
                         <label htmlFor="status-new">New Status <span aria-label="required">*</span></label>
                         <select id="status-new" value={statusForm.status} onChange={(e) => setStatusForm((s) => ({ ...s, status: e.target.value }))} required aria-required="true">
                           <option value="">Select status</option>
@@ -477,7 +483,7 @@ export default function App() {
                           <option value="patient">Patient</option>
                         </select>
                         <label htmlFor="deactivate-id">User ID <span aria-label="required">*</span></label>
-                        <input id="deactivate-id" placeholder="Enter user ID" value={deactivateForm.id} onChange={(e) => setDeactivateForm((s) => ({ ...s, id: e.target.value }))} required aria-required="true" />
+                        <input id="deactivate-id" placeholder="Enter ID (e.g., DOC001, PAT001, ADM001)" value={deactivateForm.id} onChange={(e) => setDeactivateForm((s) => ({ ...s, id: e.target.value }))} required aria-required="true" />
                       </fieldset>
                       <button type="submit" className="danger">Deactivate User</button>
                     </form>
@@ -487,6 +493,7 @@ export default function App() {
                     <h3>Users</h3>
                     <DataTable
                       columns={[
+                        { title: 'ID', key: 'uniqueId', render: (row) => row.uniqueId || '-' },
                         { title: 'Role', key: 'roleType' },
                         { title: 'Email', key: 'email' },
                         { title: 'Name', key: 'name' },
@@ -504,7 +511,7 @@ export default function App() {
                     <h3>Doctor Verification</h3>
                     <form className="mini-form" onSubmit={verifyDoctor}>
                       <label htmlFor="verify-doctor-id">Doctor ID <span aria-label="required">*</span></label>
-                      <input id="verify-doctor-id" placeholder="Enter doctor ID" value={verifyDoctorId} onChange={(e) => setVerifyDoctorId(e.target.value)} required aria-required="true" />
+                      <input id="verify-doctor-id" placeholder="Enter doctor ID (e.g., DOC001)" value={verifyDoctorId} onChange={(e) => setVerifyDoctorId(e.target.value)} required aria-required="true" />
                       <button type="submit">Verify Doctor</button>
                     </form>
                   </article>
@@ -512,6 +519,7 @@ export default function App() {
                     <h3>Doctors</h3>
                     <DataTable
                       columns={[
+                        { title: 'ID', key: 'uniqueId', render: (row) => row.uniqueId || '-' },
                         { title: 'Name', key: 'name' },
                         { title: 'Email', key: 'email' },
                         { title: 'Specialty', key: 'specialty' },
@@ -520,6 +528,21 @@ export default function App() {
                       rows={data.doctors}
                     />
                   </article>
+                </section>
+              )}
+
+              {ui.view === 'patients' && (
+                <section className="content-card">
+                  <h3>Patients</h3>
+                  <DataTable
+                    columns={[
+                      { title: 'ID', key: 'uniqueId', render: (row) => row.uniqueId || '-' },
+                      { title: 'Name', key: 'name' },
+                      { title: 'Email', key: 'email' },
+                      { title: 'Status', key: 'status' }
+                    ]}
+                    rows={data.patients}
+                  />
                 </section>
               )}
 

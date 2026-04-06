@@ -11,6 +11,7 @@ const Patient = require('./models/Patient');
 const Transaction = require('./models/Transaction');
 const Appointment = require('./models/Appointment');
 const AuditLog = require('./models/AuditLog');
+const { getNextUniqueIdForRole, syncCounterForRole } = require('./utils/uniqueUserId');
 
 const { requirePermission, RBAC } = auth;
 
@@ -65,6 +66,7 @@ const connectDatabase = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
         console.log('Connected to MongoDB');
+        await ensureUserUniqueIds();
     } catch (error) {
         console.error('MongoDB connection failed:', error.message);
     }
@@ -83,13 +85,27 @@ const authRoleConfig = {
 };
 
 const allowedUserStatuses = new Set(['active', 'inactive', 'pending', 'verified', 'suspended', 'deactivated']);
-const allowedSortFields = new Set(['createdAt', 'updatedAt', 'name', 'email', 'status', 'lastActiveAt', 'lastLoginAt']);
+const allowedSortFields = new Set(['createdAt', 'updatedAt', 'name', 'email', 'status', 'lastActiveAt', 'lastLoginAt', 'uniqueId']);
 const allowedAdminRoles = new Set(Object.keys(RBAC));
 const allowedAuthRoles = new Set(Object.keys(authRoleConfig));
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const normalizeEmail = (email) => (typeof email === 'string' ? email.toLowerCase().trim() : '');
+
+const buildUserIdentifierQuery = (id) => {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+
+    if (!normalizedId) {
+        return null;
+    }
+
+    if (isValidObjectId(normalizedId)) {
+        return { _id: normalizedId };
+    }
+
+    return { uniqueId: normalizedId.toUpperCase() };
+};
 
 const sanitizeUserDoc = (userDoc) => {
     if (!userDoc) {
@@ -122,6 +138,7 @@ const parseDuplicateKeyError = (error, entityName) => {
 
 const toSafeAdmin = (adminDoc) => ({
     _id: adminDoc._id,
+    uniqueId: adminDoc.uniqueId || '',
     email: adminDoc.email,
     role: adminDoc.role,
     permissions: adminDoc.permissions || [],
@@ -143,6 +160,63 @@ const toSafeUser = (role, userDoc) => {
         ...raw,
         roleType: role
     };
+};
+
+const assignUniqueIdsForExistingUsers = async (roleKey, model) => {
+    const missingUniqueIdFilter = {
+        $or: [{ uniqueId: { $exists: false } }, { uniqueId: null }, { uniqueId: '' }]
+    };
+
+    const usersWithoutUniqueId = await model
+        .find(missingUniqueIdFilter)
+        .sort({ createdAt: 1, _id: 1 })
+        .select('_id')
+        .lean();
+
+    if (!usersWithoutUniqueId.length) {
+        return 0;
+    }
+
+    for (const user of usersWithoutUniqueId) {
+        const nextUniqueId = await getNextUniqueIdForRole(roleKey);
+
+        await model.updateOne(
+            {
+                _id: user._id,
+                $or: [{ uniqueId: { $exists: false } }, { uniqueId: null }, { uniqueId: '' }]
+            },
+            { $set: { uniqueId: nextUniqueId } }
+        );
+    }
+
+    return usersWithoutUniqueId.length;
+};
+
+const ensureUserUniqueIds = async () => {
+    const roleModelPairs = [
+        { roleKey: 'admin', model: Admin },
+        { roleKey: 'doctor', model: Doctor },
+        { roleKey: 'patient', model: Patient }
+    ];
+
+    for (const rolePair of roleModelPairs) {
+        await syncCounterForRole(rolePair.roleKey, rolePair.model);
+    }
+
+    const assignmentStats = {};
+
+    for (const rolePair of roleModelPairs) {
+        const count = await assignUniqueIdsForExistingUsers(rolePair.roleKey, rolePair.model);
+        assignmentStats[rolePair.roleKey] = count;
+    }
+
+    const totalAssigned = Object.values(assignmentStats).reduce((sum, value) => sum + value, 0);
+
+    if (totalAssigned > 0) {
+        console.log(
+            `Backfilled unique IDs: admins=${assignmentStats.admin || 0}, doctors=${assignmentStats.doctor || 0}, patients=${assignmentStats.patient || 0}`
+        );
+    }
 };
 
 const getRoleModel = (role) => managedRoleConfig[role]?.model || null;
@@ -629,13 +703,15 @@ app.get('/api/admin/users/:role/:id/profile', requireServiceReady, auth, require
             return;
         }
 
-        if (!isValidObjectId(id)) {
+        const userIdentifierQuery = buildUserIdentifierQuery(id);
+
+        if (!userIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid user id format' });
         }
 
         const model = getRoleModel(role);
         const projection = role === 'admin' ? '-passwordHash' : '';
-        const user = await model.findById(id).select(projection);
+        const user = await model.findOne(userIdentifierQuery).select(projection);
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -645,8 +721,8 @@ app.get('/api/admin/users/:role/:id/profile', requireServiceReady, auth, require
 
         const activityHistory = await AuditLog.find({
             $or: [
-                { targetType: role, targetId: id },
-                ...(role === 'admin' ? [{ actorAdminId: id }] : [])
+                { targetType: role, targetId: user._id.toString() },
+                ...(role === 'admin' ? [{ actorAdminId: user._id.toString() }] : [])
             ]
         })
             .sort({ createdAt: -1 })
@@ -670,7 +746,9 @@ app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermis
             return;
         }
 
-        if (!isValidObjectId(id)) {
+        const userIdentifierQuery = buildUserIdentifierQuery(id);
+
+        if (!userIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid user id format' });
         }
 
@@ -738,7 +816,7 @@ app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermis
 
         const model = getRoleModel(role);
         const projection = role === 'admin' ? '-passwordHash' : '';
-        const updatedUser = await model.findByIdAndUpdate(id, updates, { new: true }).select(projection);
+        const updatedUser = await model.findOneAndUpdate(userIdentifierQuery, updates, { new: true }).select(projection);
 
         if (!updatedUser) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -747,7 +825,7 @@ app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermis
         await logAudit(req, {
             action: `user.${role}.updated`,
             targetType: role,
-            targetId: id,
+            targetId: updatedUser._id.toString(),
             targetEmail: updatedUser.email || '',
             metadata: { updates: Object.keys(updates) }
         });
@@ -773,7 +851,9 @@ app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requir
             return;
         }
 
-        if (!isValidObjectId(id)) {
+        const userIdentifierQuery = buildUserIdentifierQuery(id);
+
+        if (!userIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid user id format' });
         }
 
@@ -792,7 +872,7 @@ app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requir
 
         const model = getRoleModel(role);
         const projection = role === 'admin' ? '-passwordHash' : '';
-        const user = await model.findByIdAndUpdate(id, updates, { new: true }).select(projection);
+        const user = await model.findOneAndUpdate(userIdentifierQuery, updates, { new: true }).select(projection);
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -801,7 +881,7 @@ app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requir
         await logAudit(req, {
             action: `user.${role}.status.changed`,
             targetType: role,
-            targetId: id,
+            targetId: user._id.toString(),
             targetEmail: user.email || '',
             metadata: { status }
         });
@@ -820,7 +900,9 @@ app.patch('/api/admin/users/:role/:id/deactivate', requireServiceReady, auth, re
             return;
         }
 
-        if (!isValidObjectId(id)) {
+        const userIdentifierQuery = buildUserIdentifierQuery(id);
+
+        if (!userIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid user id format' });
         }
 
@@ -828,8 +910,8 @@ app.patch('/api/admin/users/:role/:id/deactivate', requireServiceReady, auth, re
         const projection = role === 'admin' ? '-passwordHash' : '';
 
         const user = await model
-            .findByIdAndUpdate(
-                id,
+            .findOneAndUpdate(
+                userIdentifierQuery,
                 { status: 'deactivated', deletedAt: new Date(), lastActiveAt: new Date() },
                 { new: true }
             )
@@ -842,7 +924,7 @@ app.patch('/api/admin/users/:role/:id/deactivate', requireServiceReady, auth, re
         await logAudit(req, {
             action: `user.${role}.deactivated`,
             targetType: role,
-            targetId: id,
+            targetId: user._id.toString(),
             targetEmail: user.email || ''
         });
 
@@ -860,7 +942,9 @@ app.delete('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermi
             return;
         }
 
-        if (!isValidObjectId(id)) {
+        const userIdentifierQuery = buildUserIdentifierQuery(id);
+
+        if (!userIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid user id format' });
         }
 
@@ -872,7 +956,7 @@ app.delete('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermi
         }
 
         const model = getRoleModel(role);
-        const deleted = await model.findByIdAndDelete(id);
+        const deleted = await model.findOneAndDelete(userIdentifierQuery);
 
         if (!deleted) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -881,7 +965,7 @@ app.delete('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermi
         await logAudit(req, {
             action: `user.${role}.deleted`,
             targetType: role,
-            targetId: id,
+            targetId: deleted._id.toString(),
             targetEmail: deleted.email || ''
         });
 
@@ -1278,12 +1362,14 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePerm
 
 app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, requirePermission('doctor.verify'), async (req, res) => {
     try {
-        if (!isValidObjectId(req.params.id)) {
+        const doctorIdentifierQuery = buildUserIdentifierQuery(req.params.id);
+
+        if (!doctorIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
-        const doctor = await Doctor.findByIdAndUpdate(
-            req.params.id,
+        const doctor = await Doctor.findOneAndUpdate(
+            doctorIdentifierQuery,
             { status: 'verified', lastActiveAt: new Date(), deletedAt: null },
             { new: true }
         );

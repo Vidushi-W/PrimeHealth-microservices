@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
+const { getNextUniqueIdForRole } = require('../utils/uniqueUserId');
 
 const doctorSchema = new mongoose.Schema(
     {
+        uniqueId: { type: String, unique: true, sparse: true, trim: true },
         name: { type: String, required: true, trim: true },
         specialty: { type: String, default: '' },
         status: { type: String, default: 'pending' },
@@ -27,5 +29,17 @@ const doctorSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
+
+doctorSchema.pre('validate', async function assignDoctorUniqueId(next) {
+    try {
+        if (this.isNew && !this.uniqueId) {
+            this.uniqueId = await getNextUniqueIdForRole('doctor');
+        }
+
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
 
 module.exports = mongoose.model('Doctor', doctorSchema);
