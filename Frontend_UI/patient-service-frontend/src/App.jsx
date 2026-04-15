@@ -1,29 +1,148 @@
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
+import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/AuthPage';
+import RoleDashboard from './pages/RoleDashboard';
 import './index.css';
+
+function getDefaultRoute(role) {
+  switch (role) {
+    case 'doctor':
+      return '/doctor/dashboard';
+    case 'admin':
+      return '/admin/dashboard';
+    case 'patient':
+    default:
+      return '/patient/dashboard';
+  }
+}
+
+function ProtectedRoute({ auth, allowedRoles, children }) {
+  const location = useLocation();
+
+  if (!auth?.token) {
+    return <Navigate replace state={{ from: location }} to="/login" />;
+  }
+
+  if (allowedRoles?.length && !allowedRoles.includes(auth.user?.role)) {
+    return <Navigate replace to={getDefaultRoute(auth.user?.role)} />;
+  }
+
+  return children;
+}
+
+function AppShell() {
+  const navigate = useNavigate();
+  const [auth, setAuth] = useState(() => {
+    const saved = localStorage.getItem('primeHealthAuth');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  useEffect(() => {
+    if (auth) {
+      localStorage.setItem('primeHealthAuth', JSON.stringify(auth));
+      return;
+    }
+
+    localStorage.removeItem('primeHealthAuth');
+  }, [auth]);
+
+  const handleAuthSuccess = ({ token, user }) => {
+    setAuth({ token, user });
+  };
+
+  const handleProfileSync = (user) => {
+    setAuth((current) => (current ? { ...current, user } : current));
+  };
+
+  const handleLogout = () => {
+    setAuth(null);
+    navigate('/login');
+  };
+
+  return (
+    <div className="app-shell">
+      <nav className="navbar glass">
+        <div className="navbar-brand">
+          <span className="logo-dot"></span>
+          PrimeHealth Connect
+        </div>
+
+        <div className="navbar-links">
+          {auth?.token ? (
+            <>
+              <Link to={getDefaultRoute(auth.user?.role)} className="nav-link">Dashboard</Link>
+              <span className="nav-user">{auth.user?.fullName || auth.user?.email}</span>
+              <button className="btn btn-secondary" onClick={handleLogout} type="button">
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="nav-link">Login</Link>
+              <Link to="/register" className="btn btn-primary small">Register</Link>
+            </>
+          )}
+        </div>
+      </nav>
+
+      <main className="main-content">
+        <Routes>
+          <Route
+            path="/"
+            element={<Navigate replace to={auth?.token ? getDefaultRoute(auth.user?.role) : '/login'} />}
+          />
+          <Route
+            path="/patient/dashboard"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <Dashboard auth={auth} onProfileSync={handleProfileSync} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/doctor/dashboard"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['doctor']}>
+                <RoleDashboard auth={auth} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/dashboard"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['admin']}>
+                <RoleDashboard auth={auth} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/login"
+            element={auth?.token ? <Navigate replace to={getDefaultRoute(auth.user?.role)} /> : <LoginPage onAuthSuccess={handleAuthSuccess} getDefaultRoute={getDefaultRoute} />}
+          />
+          <Route
+            path="/register"
+            element={auth?.token ? <Navigate replace to={getDefaultRoute(auth.user?.role)} /> : <RegistrationChoicePage />}
+          />
+          <Route
+            path="/register/patient"
+            element={auth?.token ? <Navigate replace to={getDefaultRoute(auth.user?.role)} /> : <RegistrationPage role="patient" onAuthSuccess={handleAuthSuccess} getDefaultRoute={getDefaultRoute} />}
+          />
+          <Route
+            path="/register/doctor"
+            element={auth?.token ? <Navigate replace to={getDefaultRoute(auth.user?.role)} /> : <RegistrationPage role="doctor" onAuthSuccess={handleAuthSuccess} getDefaultRoute={getDefaultRoute} />}
+          />
+          <Route path="*" element={<div className="not-found animate-fade-in">404 - Page Not Found</div>} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
 
 function App() {
   return (
     <BrowserRouter>
-      <div className="app-container">
-        <nav className="navbar glass">
-          <div className="navbar-brand">
-            <span className="logo-dot"></span>
-            PrimeHealth Connect
-          </div>
-          <div className="navbar-links">
-            <Link to="/" className="nav-link">Dashboard</Link>
-            <Link to="/profile" className="nav-link">Profile</Link>
-          </div>
-        </nav>
-        
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="*" element={<div className="not-found animate-fade-in">404 - Page Not Found</div>} />
-          </Routes>
-        </main>
-      </div>
+      <AppShell />
     </BrowserRouter>
   );
 }
