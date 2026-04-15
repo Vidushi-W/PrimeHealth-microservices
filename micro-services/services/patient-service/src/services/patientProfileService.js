@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const PatientProfile = require("../models/PatientProfile");
 const { fetchPrescriptionsByPatient } = require("./prescriptionServiceClient");
+const { listMyAppointments } = require("./appointmentBookingService");
 
 function buildUserSummary(user) {
   return {
@@ -107,16 +108,16 @@ function buildWelcomeCard(user, profile) {
     subtitle: "Your care updates, prescriptions, and next actions are all in one place.",
     stats: [
       {
-        label: "Profile status",
-        value: user.isVerified ? "Verified" : "Pending verification",
-      },
-      {
         label: "Blood group",
         value: profile.bloodGroup || "Add to profile",
       },
       {
         label: "Emergency contact",
         value: profile.emergencyContactName || "Missing",
+      },
+      {
+        label: "Account email",
+        value: user.email,
       },
     ],
   };
@@ -140,17 +141,32 @@ function buildQuickActions(userId) {
   };
 }
 
-function buildUpcomingAppointments(profile) {
-  return [
-    {
-      id: "appt-placeholder-1",
-      title: "No upcoming appointments yet",
-      clinician: "Book a consultation to see it here",
-      dateLabel: "Schedule when ready",
-      status: "open",
-      location: profile.address || "PrimeHealth care network",
-    },
-  ];
+function buildUpcomingAppointments(appointments, profile) {
+  if (!appointments.length) {
+    return [
+      {
+        id: "appt-placeholder-1",
+        title: "No upcoming appointments yet",
+        clinician: "Book a consultation to see it here",
+        dateLabel: "Schedule when ready",
+        status: "open",
+        location: profile.address || "PrimeHealth care network",
+        mode: "",
+        timeSlot: "",
+      },
+    ];
+  }
+
+  return appointments.slice(0, 3).map((appointment) => ({
+    id: appointment.id,
+    title: appointment.doctorName,
+    clinician: appointment.specialization,
+    dateLabel: appointment.dateLabel,
+    status: appointment.status,
+    location: appointment.hospitalOrClinic,
+    mode: appointment.mode,
+    timeSlot: appointment.timeSlot,
+  }));
 }
 
 function buildUploadedReports() {
@@ -230,11 +246,18 @@ async function getMyPatientHome(userId) {
   }
 
   let prescriptions = [];
+  let appointments = [];
 
   try {
     prescriptions = await fetchPrescriptionsByPatient(String(userId));
   } catch (_error) {
     prescriptions = [];
+  }
+
+  try {
+    appointments = await listMyAppointments(userId);
+  } catch (_error) {
+    appointments = [];
   }
 
   return {
@@ -244,7 +267,7 @@ async function getMyPatientHome(userId) {
       user: buildUserSummary(user),
       profile: buildProfileResponse(user, profile).profile,
       welcomeCard: buildWelcomeCard(user, profile),
-      upcomingAppointments: buildUpcomingAppointments(profile),
+      upcomingAppointments: buildUpcomingAppointments(appointments, profile),
       recentPrescriptions: buildPrescriptionSummary(prescriptions),
       uploadedReports: buildUploadedReports(),
       reminders: buildHomeReminders(profile),

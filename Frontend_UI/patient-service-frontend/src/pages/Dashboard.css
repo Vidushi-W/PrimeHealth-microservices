@@ -79,6 +79,12 @@
   margin-bottom: 0;
 }
 
+.booking-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
 .dashboard-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -171,6 +177,48 @@
   gap: 0.25rem;
   text-align: right;
   min-width: 140px;
+}
+
+.doctor-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.doctor-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.2rem;
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(145, 166, 202, 0.24);
+}
+
+.doctor-card.selected {
+  border-color: rgba(11, 95, 255, 0.45);
+  box-shadow: 0 12px 28px rgba(11, 95, 255, 0.08);
+}
+
+.doctor-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.2rem;
+}
+
+.doctor-card p,
+.doctor-meta span {
+  color: var(--color-text-muted);
+}
+
+.doctor-meta {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.92rem;
+}
+
+.booking-actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
 }
 
 .list-empty {

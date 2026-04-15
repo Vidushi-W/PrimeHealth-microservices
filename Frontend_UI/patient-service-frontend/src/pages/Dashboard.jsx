@@ -63,6 +63,9 @@ function Dashboard({ auth, onProfileSync }) {
         </div>
 
         <div className="welcome-actions">
+          <Link className="btn btn-secondary" to="/patient/appointments/book">
+            Book appointment
+          </Link>
           <Link className="btn btn-primary" to={homeData?.quickActions?.profile?.route || '/patient/profile'}>
             {homeData?.quickActions?.profile?.ctaLabel || 'Open profile'}
           </Link>
@@ -88,6 +91,7 @@ function Dashboard({ auth, onProfileSync }) {
               <h2>Upcoming appointments</h2>
               <p>Your next booked consultations and visit status.</p>
             </div>
+            <Link className="btn btn-primary small" to="/patient/appointments/book">Book appointment</Link>
           </div>
 
           <div className="list-stack">
@@ -99,7 +103,8 @@ function Dashboard({ auth, onProfileSync }) {
                 </div>
                 <div className="list-meta">
                   <strong>{appointment.dateLabel}</strong>
-                  <span>{appointment.location}</span>
+                  <span>{appointment.timeSlot || appointment.location}</span>
+                  <span>{appointment.mode ? `${appointment.mode} consultation` : appointment.location}</span>
                 </div>
               </article>
             )) : <EmptyState label="No upcoming appointments yet." />}

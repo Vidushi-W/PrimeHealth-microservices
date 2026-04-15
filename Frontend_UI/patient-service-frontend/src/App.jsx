@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate 
 import { useCallback, useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/AuthPage';
+import BookAppointmentPage from './pages/BookAppointmentPage';
 import ProfilePage from './pages/ProfilePage';
 import RoleDashboard from './pages/RoleDashboard';
 import SymptomCheckerPage from './pages/SymptomCheckerPage';
@@ -108,6 +109,14 @@ function AppShell() {
             element={(
               <ProtectedRoute auth={auth} allowedRoles={['patient']}>
                 <ProfilePage auth={auth} onProfileSync={handleProfileSync} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/patient/appointments/book"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <BookAppointmentPage auth={auth} />
               </ProtectedRoute>
             )}
           />

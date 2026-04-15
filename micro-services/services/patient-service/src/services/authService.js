@@ -24,6 +24,21 @@ function normalizeArray(value) {
   return [value].filter(Boolean);
 }
 
+function normalizeDoctorAvailability(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => ({
+      date: item?.date?.toString().trim(),
+      startTime: item?.startTime?.toString().trim(),
+      endTime: item?.endTime?.toString().trim(),
+      mode: item?.mode?.toString().trim() || "physical",
+    }))
+    .filter((item) => item.date && item.startTime && item.endTime);
+}
+
 function buildUserSummary(user) {
   return {
     id: user._id,
@@ -54,6 +69,20 @@ function validateRegisterInput(payload) {
     return "Password must be at least 8 characters long";
   }
 
+  if (payload.role === "doctor") {
+    const doctorRequiredFields = ["specialization", "licenseNumber", "hospitalOrClinic"];
+    const missingDoctorFields = doctorRequiredFields.filter((field) => !payload[field]?.toString().trim());
+
+    if (missingDoctorFields.length) {
+      return `Missing required doctor fields: ${missingDoctorFields.join(", ")}`;
+    }
+
+    const availability = normalizeDoctorAvailability(payload.availability);
+    if (!availability.length) {
+      return "Doctors must add at least one availability slot";
+    }
+  }
+
   return null;
 }
 
@@ -82,6 +111,7 @@ async function createRoleProfile(user, payload) {
       yearsOfExperience: payload.yearsOfExperience,
       consultationFee: payload.consultationFee,
       bio: payload.bio,
+      availability: normalizeDoctorAvailability(payload.availability),
     });
   }
 }

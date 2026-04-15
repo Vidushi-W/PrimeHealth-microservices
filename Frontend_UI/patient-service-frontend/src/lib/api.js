@@ -57,6 +57,55 @@ export async function getPatientHome(token) {
   return parseResponse(response);
 }
 
+export async function getBookableDoctors(token, filters = {}) {
+  const query = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  );
+  const response = await fetch(`${API_BASE_URL}/api/patients/doctors?${query.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function getDoctorSlots(token, doctorId, filters = {}) {
+  const query = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  );
+  const response = await fetch(`${API_BASE_URL}/api/patients/doctors/${doctorId}/slots?${query.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function getMyAppointments(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function createAppointment(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
 export async function updateMyProfile(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/me`, {
     method: 'PUT',

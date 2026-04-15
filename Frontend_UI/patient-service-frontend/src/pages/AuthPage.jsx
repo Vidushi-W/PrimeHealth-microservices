@@ -29,6 +29,14 @@ const doctorRegisterInitialState = {
   hospitalOrClinic: '',
   yearsOfExperience: '',
   consultationFee: '',
+  availability: [],
+};
+
+const initialAvailabilityDraft = {
+  date: '',
+  startTime: '',
+  endTime: '',
+  mode: 'physical',
 };
 
 function getRegistrationConfig(role) {
@@ -159,6 +167,7 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
   const [registerForm, setRegisterForm] = useState(
     role === 'doctor' ? doctorRegisterInitialState : patientRegisterInitialState,
   );
+  const [availabilityDraft, setAvailabilityDraft] = useState(initialAvailabilityDraft);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,6 +181,37 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
   const handleChange = (event) => {
     const { name, value } = event.target;
     setRegisterForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleAvailabilityDraftChange = (event) => {
+    const { name, value } = event.target;
+    setAvailabilityDraft((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleAddAvailability = () => {
+    if (!availabilityDraft.date || !availabilityDraft.startTime || !availabilityDraft.endTime) {
+      setError('Add a date, start time, and end time for doctor availability.');
+      return;
+    }
+
+    if (availabilityDraft.endTime <= availabilityDraft.startTime) {
+      setError('Availability end time must be later than start time.');
+      return;
+    }
+
+    setRegisterForm((current) => ({
+      ...current,
+      availability: [...(current.availability || []), availabilityDraft],
+    }));
+    setAvailabilityDraft(initialAvailabilityDraft);
+    setError('');
+  };
+
+  const handleRemoveAvailability = (indexToRemove) => {
+    setRegisterForm((current) => ({
+      ...current,
+      availability: (current.availability || []).filter((_, index) => index !== indexToRemove),
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -247,6 +287,73 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
               {row.length === 1 ? <div className="form-field form-field-spacer" aria-hidden="true"></div> : null}
             </div>
           ))}
+
+          {role === 'doctor' ? (
+            <section className="availability-builder">
+              <div className="availability-builder-header">
+                <div>
+                  <h3>Add available slots</h3>
+                  <p>Doctors usually set exact consultation windows that patients can book later.</p>
+                </div>
+              </div>
+
+              <div className="availability-grid">
+                <label className="form-field">
+                  <span>Date</span>
+                  <input
+                    min={new Date().toISOString().slice(0, 10)}
+                    name="date"
+                    onChange={handleAvailabilityDraftChange}
+                    type="date"
+                    value={availabilityDraft.date}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Start time</span>
+                  <input
+                    name="startTime"
+                    onChange={handleAvailabilityDraftChange}
+                    type="time"
+                    value={availabilityDraft.startTime}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>End time</span>
+                  <input
+                    name="endTime"
+                    onChange={handleAvailabilityDraftChange}
+                    type="time"
+                    value={availabilityDraft.endTime}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Mode</span>
+                  <select name="mode" onChange={handleAvailabilityDraftChange} value={availabilityDraft.mode}>
+                    <option value="physical">Physical</option>
+                    <option value="online">Online</option>
+                  </select>
+                </label>
+              </div>
+
+              <button className="btn btn-secondary small" onClick={handleAddAvailability} type="button">
+                Add slot
+              </button>
+
+              <div className="availability-list">
+                {(registerForm.availability || []).length ? registerForm.availability.map((slot, index) => (
+                  <div className="availability-chip" key={`${slot.date}-${slot.startTime}-${slot.endTime}-${index}`}>
+                    <span>{slot.date} | {slot.startTime} - {slot.endTime} | {slot.mode}</span>
+                    <button onClick={() => handleRemoveAvailability(index)} type="button">Remove</button>
+                  </div>
+                )) : (
+                  <p className="auth-inline-note compact">Add at least one slot so patients can book you.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           {error ? <p className="form-message error">{error}</p> : null}
           {success ? <p className="form-message success">{success}</p> : null}

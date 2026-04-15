@@ -129,8 +129,8 @@ function ProfilePage({ auth, onProfileSync }) {
           <p>Update the details that support appointments, prescriptions, and emergency workflows.</p>
         </div>
         <div className="dashboard-badge glass">
-          <span>{profileData?.user.role}</span>
-          <strong>{profileData?.user.isVerified ? 'Verified' : 'Pending verification'}</strong>
+          <span>Account role</span>
+          <strong>{profileData?.user.role}</strong>
         </div>
       </header>
 

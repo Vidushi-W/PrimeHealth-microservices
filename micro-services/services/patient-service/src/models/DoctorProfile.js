@@ -1,5 +1,31 @@
 const mongoose = require("mongoose");
 
+const availabilityItemSchema = new mongoose.Schema(
+  {
+    date: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    startTime: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    endTime: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    mode: {
+      type: String,
+      enum: ["online", "physical"],
+      default: "physical",
+    },
+  },
+  { _id: false }
+);
+
 const doctorProfileSchema = new mongoose.Schema(
   {
     userId: {
@@ -37,6 +63,10 @@ const doctorProfileSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+    },
+    availability: {
+      type: [availabilityItemSchema],
+      default: [],
     },
     isApproved: {
       type: Boolean,
