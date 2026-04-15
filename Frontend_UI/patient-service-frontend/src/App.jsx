@@ -1,8 +1,10 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/AuthPage';
+import ProfilePage from './pages/ProfilePage';
 import RoleDashboard from './pages/RoleDashboard';
+import SymptomCheckerPage from './pages/SymptomCheckerPage';
 import './index.css';
 
 function getDefaultRoute(role) {
@@ -51,9 +53,9 @@ function AppShell() {
     setAuth({ token, user });
   };
 
-  const handleProfileSync = (user) => {
+  const handleProfileSync = useCallback((user) => {
     setAuth((current) => (current ? { ...current, user } : current));
-  };
+  }, []);
 
   const handleLogout = () => {
     setAuth(null);
@@ -72,6 +74,7 @@ function AppShell() {
           {auth?.token ? (
             <>
               <Link to={getDefaultRoute(auth.user?.role)} className="nav-link">Dashboard</Link>
+              {auth.user?.role === 'patient' ? <Link to="/patient/profile" className="nav-link">My Profile</Link> : null}
               <span className="nav-user">{auth.user?.fullName || auth.user?.email}</span>
               <button className="btn btn-secondary" onClick={handleLogout} type="button">
                 Logout
@@ -97,6 +100,22 @@ function AppShell() {
             element={(
               <ProtectedRoute auth={auth} allowedRoles={['patient']}>
                 <Dashboard auth={auth} onProfileSync={handleProfileSync} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/patient/profile"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <ProfilePage auth={auth} onProfileSync={handleProfileSync} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/symptom-checker"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <SymptomCheckerPage />
               </ProtectedRoute>
             )}
           />

@@ -1,63 +1,32 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { getMyProfile, updateMyProfile } from '../lib/api';
+import { getPatientHome } from '../lib/api';
 import './Dashboard.css';
 
-const initialProfileForm = {
-  fullName: '',
-  phone: '',
-  dateOfBirth: '',
-  gender: '',
-  bloodGroup: '',
-  allergies: '',
-  chronicConditions: '',
-  address: '',
-  emergencyContactName: '',
-  emergencyContactPhone: '',
-};
-
-function formatDate(value) {
-  if (!value) {
-    return '';
-  }
-
-  return new Date(value).toISOString().slice(0, 10);
+function EmptyState({ label }) {
+  return <p className="list-empty">{label}</p>;
 }
 
-const Dashboard = ({ auth, onProfileSync }) => {
-  const [profileData, setProfileData] = useState(null);
-  const [profileForm, setProfileForm] = useState(initialProfileForm);
+function Dashboard({ auth, onProfileSync }) {
+  const [homeData, setHomeData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     let active = true;
 
-    async function loadProfile() {
+    async function loadHome() {
       setIsLoading(true);
       setError('');
 
       try {
-        const response = await getMyProfile(auth.token);
+        const response = await getPatientHome(auth.token);
         if (!active) {
           return;
         }
 
-        setProfileData(response);
+        setHomeData(response);
         onProfileSync(response.user);
-        setProfileForm({
-          fullName: response.user.fullName || '',
-          phone: response.user.phone || '',
-          dateOfBirth: formatDate(response.profile.dateOfBirth),
-          gender: response.profile.gender || '',
-          bloodGroup: response.profile.bloodGroup || '',
-          allergies: (response.profile.allergies || []).join(', '),
-          chronicConditions: (response.profile.chronicConditions || []).join(', '),
-          address: response.profile.address || '',
-          emergencyContactName: response.profile.emergencyContactName || '',
-          emergencyContactPhone: response.profile.emergencyContactPhone || '',
-        });
       } catch (requestError) {
         if (active) {
           setError(requestError.message);
@@ -69,177 +38,160 @@ const Dashboard = ({ auth, onProfileSync }) => {
       }
     }
 
-    loadProfile();
+    loadHome();
 
     return () => {
       active = false;
     };
-  }, [auth.token]);
-
-  const handleChange = (event) => {
-    const { name, value } = event.target;
-    setProfileForm((current) => ({ ...current, [name]: value }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setIsSaving(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const payload = {
-        fullName: profileForm.fullName,
-        phone: profileForm.phone,
-        dateOfBirth: profileForm.dateOfBirth || null,
-        gender: profileForm.gender,
-        bloodGroup: profileForm.bloodGroup,
-        allergies: profileForm.allergies.split(',').map((item) => item.trim()).filter(Boolean),
-        chronicConditions: profileForm.chronicConditions.split(',').map((item) => item.trim()).filter(Boolean),
-        address: profileForm.address,
-        emergencyContactName: profileForm.emergencyContactName,
-        emergencyContactPhone: profileForm.emergencyContactPhone,
-      };
-
-      const response = await updateMyProfile(auth.token, payload);
-      setProfileData(response);
-      onProfileSync(response.user);
-      setSuccess('Profile updated successfully.');
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  }, [auth.token, onProfileSync]);
 
   if (isLoading) {
-    return <div className="dashboard-state glass">Loading patient profile...</div>;
+    return <div className="dashboard-state glass">Loading your patient dashboard...</div>;
   }
 
-  if (error && !profileData) {
+  if (error && !homeData) {
     return <div className="dashboard-state glass error">{error}</div>;
   }
 
   return (
     <div className="dashboard animate-fade-in">
-      <header className="dashboard-header">
+      <section className="welcome-card glass">
         <div>
           <p className="eyebrow">Patient dashboard</p>
-          <h1>{profileData?.user.fullName || 'Patient profile'}</h1>
-          <p>Keep your registration details updated and ready for appointments.</p>
+          <h1>{homeData?.welcomeCard?.title || 'Welcome back'}</h1>
+          <p>{homeData?.welcomeCard?.subtitle}</p>
         </div>
-        <div className="dashboard-badge glass">
-          <span>{profileData?.user.role}</span>
-          <strong>{profileData?.user.isVerified ? 'Verified' : 'Pending verification'}</strong>
-        </div>
-      </header>
 
-      <div className="dashboard-grid">
-        <div className="dashboard-card glass">
-          <h3>Account email</h3>
-          <p className="card-value">{profileData?.user.email}</p>
-          <p className="text-muted">Primary sign-in for the patient portal</p>
+        <div className="welcome-actions">
+          <Link className="btn btn-primary" to={homeData?.quickActions?.profile?.route || '/patient/profile'}>
+            {homeData?.quickActions?.profile?.ctaLabel || 'Open profile'}
+          </Link>
+          <a className="btn btn-secondary" href={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
+            {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
+          </a>
         </div>
-        <div className="dashboard-card glass">
-          <h3>Blood group</h3>
-          <p className="card-value status-good">{profileData?.profile.bloodGroup || 'Not added yet'}</p>
-          <p className="text-muted">Useful for emergency workflows and clinical records</p>
-        </div>
-        <div className="dashboard-card glass">
-          <h3>Emergency contact</h3>
-          <p className="card-value">
-            {profileData?.profile.emergencyContactName || 'Add a trusted contact'}
-          </p>
-          <p className="text-muted">
-            {profileData?.profile.emergencyContactPhone || 'No emergency phone saved'}
-          </p>
-        </div>
+      </section>
+
+      <div className="dashboard-grid dashboard-grid-tight">
+        {(homeData?.welcomeCard?.stats || []).map((stat) => (
+          <div className="dashboard-card glass" key={stat.label}>
+            <h3>{stat.label}</h3>
+            <p className="card-value">{stat.value}</p>
+          </div>
+        ))}
       </div>
 
-      <section className="profile-editor glass">
-        <div className="profile-editor-header">
-          <h2>Edit profile</h2>
-          <p>These fields connect directly to your patient profile backend.</p>
+      <div className="dashboard-columns">
+        <section className="dashboard-section glass">
+          <div className="section-header">
+            <div>
+              <h2>Upcoming appointments</h2>
+              <p>Your next booked consultations and visit status.</p>
+            </div>
+          </div>
+
+          <div className="list-stack">
+            {homeData?.upcomingAppointments?.length ? homeData.upcomingAppointments.map((appointment) => (
+              <article className="list-card" key={appointment.id}>
+                <div>
+                  <h3>{appointment.title}</h3>
+                  <p>{appointment.clinician}</p>
+                </div>
+                <div className="list-meta">
+                  <strong>{appointment.dateLabel}</strong>
+                  <span>{appointment.location}</span>
+                </div>
+              </article>
+            )) : <EmptyState label="No upcoming appointments yet." />}
+          </div>
+        </section>
+
+        <section className="dashboard-section glass">
+          <div className="section-header">
+            <div>
+              <h2>Recent prescriptions</h2>
+              <p>The latest medicines and treatment notes issued to you.</p>
+            </div>
+          </div>
+
+          <div className="list-stack">
+            {homeData?.recentPrescriptions?.length ? homeData.recentPrescriptions.map((prescription) => (
+              <article className="list-card" key={prescription.id}>
+                <div>
+                  <h3>{prescription.diagnosis}</h3>
+                  <p>{prescription.doctorId}</p>
+                </div>
+                <div className="list-meta">
+                  <strong>{prescription.createdAtLabel}</strong>
+                  <span>{prescription.medicineCount} medicines</span>
+                </div>
+              </article>
+            )) : <EmptyState label="No prescriptions yet." />}
+          </div>
+        </section>
+      </div>
+
+      <div className="dashboard-columns">
+        <section className="dashboard-section glass">
+          <div className="section-header">
+            <div>
+              <h2>Uploaded reports</h2>
+              <p>Lab reports, scans, and clinical files you have added.</p>
+            </div>
+          </div>
+
+          <div className="list-stack">
+            {homeData?.uploadedReports?.length ? homeData.uploadedReports.map((report) => (
+              <article className="list-card" key={report.id}>
+                <div>
+                  <h3>{report.name}</h3>
+                  <p>{report.type}</p>
+                </div>
+                <div className="list-meta">
+                  <strong>{report.uploadedAtLabel}</strong>
+                  <span>{report.status}</span>
+                </div>
+              </article>
+            )) : <EmptyState label="No uploaded reports yet." />}
+          </div>
+        </section>
+
+        <section className="dashboard-section glass">
+          <div className="section-header">
+            <div>
+              <h2>Reminders</h2>
+              <p>Things worth updating so your care flow stays ready.</p>
+            </div>
+          </div>
+
+          <div className="list-stack">
+            {homeData?.reminders?.length ? homeData.reminders.map((reminder) => (
+              <article className="list-card" key={reminder.id}>
+                <div>
+                  <h3>{reminder.title}</h3>
+                  <p>{reminder.detail}</p>
+                </div>
+                <div className={`pill ${reminder.status}`}>
+                  {reminder.status === 'good' ? 'Ready' : 'Action needed'}
+                </div>
+              </article>
+            )) : <EmptyState label="No reminders right now." />}
+          </div>
+        </section>
+      </div>
+
+      <section className="dashboard-section glass symptom-entry">
+        <div>
+          <p className="eyebrow">Quick symptom checker</p>
+          <h2>{homeData?.quickActions?.symptomChecker?.title || 'Start a quick symptom check'}</h2>
+          <p>{homeData?.quickActions?.symptomChecker?.description}</p>
         </div>
-
-        <form className="profile-form" onSubmit={handleSubmit}>
-          <div className="form-row">
-            <label className="form-field">
-              <span>Full name</span>
-              <input name="fullName" value={profileForm.fullName} onChange={handleChange} />
-            </label>
-            <label className="form-field">
-              <span>Phone</span>
-              <input name="phone" value={profileForm.phone} onChange={handleChange} />
-            </label>
-          </div>
-
-          <div className="form-row">
-            <label className="form-field">
-              <span>Date of birth</span>
-              <input type="date" name="dateOfBirth" value={profileForm.dateOfBirth} onChange={handleChange} />
-            </label>
-            <label className="form-field">
-              <span>Gender</span>
-              <input name="gender" value={profileForm.gender} onChange={handleChange} />
-            </label>
-          </div>
-
-          <div className="form-row">
-            <label className="form-field">
-              <span>Blood group</span>
-              <input name="bloodGroup" value={profileForm.bloodGroup} onChange={handleChange} />
-            </label>
-            <label className="form-field">
-              <span>Address</span>
-              <input name="address" value={profileForm.address} onChange={handleChange} />
-            </label>
-          </div>
-
-          <label className="form-field">
-            <span>Allergies</span>
-            <input name="allergies" value={profileForm.allergies} onChange={handleChange} placeholder="Peanuts, Dust" />
-          </label>
-
-          <label className="form-field">
-            <span>Chronic conditions</span>
-            <input
-              name="chronicConditions"
-              value={profileForm.chronicConditions}
-              onChange={handleChange}
-              placeholder="Asthma, Diabetes"
-            />
-          </label>
-
-          <div className="form-row">
-            <label className="form-field">
-              <span>Emergency contact name</span>
-              <input
-                name="emergencyContactName"
-                value={profileForm.emergencyContactName}
-                onChange={handleChange}
-              />
-            </label>
-            <label className="form-field">
-              <span>Emergency contact phone</span>
-              <input
-                name="emergencyContactPhone"
-                value={profileForm.emergencyContactPhone}
-                onChange={handleChange}
-              />
-            </label>
-          </div>
-
-          {error ? <p className="form-message error">{error}</p> : null}
-          {success ? <p className="form-message success">{success}</p> : null}
-
-          <button className="btn btn-primary" disabled={isSaving} type="submit">
-            {isSaving ? 'Saving...' : 'Save profile'}
-          </button>
-        </form>
+        <a className="btn btn-primary" href={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
+          {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
+        </a>
       </section>
     </div>
   );
-};
+}
 
 export default Dashboard;

@@ -47,6 +47,16 @@ export async function getMyProfile(token) {
   return parseResponse(response);
 }
 
+export async function getPatientHome(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/home`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
 export async function updateMyProfile(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/me`, {
     method: 'PUT',
