@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createAppointment, getBookableDoctors, getDoctorSlots, getPatientReports } from '../lib/api';
 import './Dashboard.css';
 
@@ -142,7 +142,11 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
 
 function BookAppointmentPage({ auth }) {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState(initialFilters);
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState(() => ({
+    ...initialFilters,
+    specialization: searchParams.get('specialization') || '',
+  }));
   const [bookingForm, setBookingForm] = useState(initialBookingForm);
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
@@ -159,6 +163,14 @@ function BookAppointmentPage({ auth }) {
   const visibleSlots = slots.length
     ? slots
     : buildClientFallbackSlots(selectedDoctor, bookingForm.appointmentDate, bookingForm.mode);
+
+  useEffect(() => {
+    const specialization = searchParams.get('specialization') || '';
+    setFilters((current) => ({
+      ...current,
+      specialization,
+    }));
+  }, [searchParams]);
 
   useEffect(() => {
     let active = true;

@@ -127,7 +127,7 @@ function AppShell() {
             path="/symptom-checker"
             element={(
               <ProtectedRoute auth={auth} allowedRoles={['patient']}>
-                <SymptomCheckerPage />
+                <SymptomCheckerPage auth={auth} />
               </ProtectedRoute>
             )}
           />

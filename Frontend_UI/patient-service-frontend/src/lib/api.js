@@ -138,6 +138,19 @@ export async function deletePatientReport(token, reportId) {
   return parseResponse(response);
 }
 
+export async function checkSymptoms(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/symptoms/check`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
 export async function createAppointment(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
     method: 'POST',

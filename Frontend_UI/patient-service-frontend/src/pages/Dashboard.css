@@ -397,6 +397,24 @@
   color: #a63d33;
 }
 
+.symptom-textarea {
+  width: 100%;
+  min-height: 7rem;
+  border: 1px solid rgba(145, 166, 202, 0.42);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--color-text);
+  padding: 0.92rem 1rem;
+  border-radius: 1rem;
+  outline: none;
+  resize: vertical;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.symptom-textarea:focus {
+  border-color: rgba(82, 183, 136, 0.55);
+  box-shadow: 0 0 0 4px rgba(82, 183, 136, 0.1);
+}
+
 .upload-records-note {
   align-self: center;
   color: var(--color-text-muted);
@@ -535,6 +553,19 @@
 .pill.good {
   background: rgba(82, 183, 136, 0.12);
   color: #1f7b54;
+}
+
+.pill.neutral {
+  background: rgba(82, 183, 136, 0.08);
+  color: #2f6a52;
+  border: 1px solid rgba(82, 183, 136, 0.14);
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
 }
 
 .reminder-card {

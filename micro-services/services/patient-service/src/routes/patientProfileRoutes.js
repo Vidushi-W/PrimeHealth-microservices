@@ -15,6 +15,7 @@ const {
   getDoctors,
   getDoctorSlots,
 } = require("../controllers/patientAppointmentController");
+const { runSymptomCheck } = require("../controllers/symptomCheckerController");
 const { authorizeRoles, protect } = require("../middleware/auth");
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.get("/reports", getReports);
 router.post("/reports", uploadReport);
 router.post("/reports/:reportId/analyze", analyzeReport);
 router.delete("/reports/:reportId", deleteReport);
+router.post("/symptoms/check", runSymptomCheck);
 router.get("/doctors", getDoctors);
 router.get("/doctors/:doctorId/slots", getDoctorSlots);
 router.get("/appointments", getAppointments);
