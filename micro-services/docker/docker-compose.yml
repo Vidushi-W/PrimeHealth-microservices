@@ -1,6 +1,14 @@
 version: '3.8'
 
 services:
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
   doctor-service:
     build:
       context: ../services/doctor-service
@@ -11,8 +19,10 @@ services:
       - PORT=5002
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_DOCTOR}
-      - CORS_ORIGIN=http://localhost:3000
+      - CORS_ORIGIN=http://localhost:5173
       - PRESCRIPTION_SERVICE_URL=http://prescription-service:5005
+    depends_on:
+      - mongodb
     networks:
       - primehealth-net
     restart: unless-stopped
@@ -27,10 +37,11 @@ services:
       - PORT=5003
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_APPOINTMENT}
-      - CORS_ORIGIN=http://localhost:3000
+      - CORS_ORIGIN=http://localhost:5173
       - DOCTOR_SERVICE_URL=http://doctor-service:5002
       - PAYMENT_SERVICE_URL=http://payment-service:5004
     depends_on:
+      - mongodb
       - doctor-service
     networks:
       - primehealth-net
@@ -46,9 +57,10 @@ services:
       - PORT=5004
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_PAYMENT}
-      - CORS_ORIGIN=http://localhost:3000
+      - CORS_ORIGIN=http://localhost:5173
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
     depends_on:
+      - mongodb
       - appointment-service
     networks:
       - primehealth-net
@@ -64,7 +76,9 @@ services:
       - PORT=5005
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_PRESCRIPTION}
-      - CORS_ORIGIN=http://localhost:3000
+      - CORS_ORIGIN=http://localhost:5173
+    depends_on:
+      - mongodb
     networks:
       - primehealth-net
     restart: unless-stopped
@@ -72,3 +86,6 @@ services:
 networks:
   primehealth-net:
     driver: bridge
+
+volumes:
+  mongodb_data:
