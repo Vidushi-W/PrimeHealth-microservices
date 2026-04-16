@@ -7,4 +7,4 @@ function validate(req, _res, next) {
   return next(new ApiError(400, 'Validation failed', result.array()));
 }
 
-module.exports = { validate };
+module.exports = validate;
