@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  doctor-service:
+    build:
+      context: ../services/doctor-service
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI_DOCTOR}
+      - CORS_ORIGIN=http://localhost:3000
+      - PRESCRIPTION_SERVICE_URL=http://prescription-service:5005
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+  appointment-service:
+    build:
+      context: ../services/appointment-service
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI_APPOINTMENT}
+      - CORS_ORIGIN=http://localhost:3000
+      - DOCTOR_SERVICE_URL=http://doctor-service:5002
+      - PAYMENT_SERVICE_URL=http://payment-service:5004
+    depends_on:
+      - doctor-service
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ../services/payment-service
+      dockerfile: Dockerfile
+    ports:
+      - "5004:5004"
+    environment:
+      - PORT=5004
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI_PAYMENT}
+      - CORS_ORIGIN=http://localhost:3000
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+    depends_on:
+      - appointment-service
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+  prescription-service:
+    build:
+      context: ../services/prescription-service
+      dockerfile: Dockerfile
+    ports:
+      - "5005:5005"
+    environment:
+      - PORT=5005
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI_PRESCRIPTION}
+      - CORS_ORIGIN=http://localhost:3000
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+networks:
+  primehealth-net:
+    driver: bridge

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrimeHealth — Appointment & Payment</title>
+    <meta name="description" content="PrimeHealth Microservices — Book appointments and manage payments">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <h1>⚕️ PrimeHealth</h1>
+        <nav>
+            <button class="nav-btn active" onclick="showSection('book-appointment', this)">Book Appointment</button>
+            <button class="nav-btn" onclick="showSection('my-appointments', this)">My Appointments</button>
+            <button class="nav-btn" onclick="showSection('payment-history', this)">Payment History</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- ═══ BOOK APPOINTMENT ═══ -->
+        <section id="book-appointment" class="active">
+            <div class="section-header">
+                <h2>📋 Book a Doctor</h2>
+                <p class="subtitle">Schedule your next consultation in seconds.</p>
+            </div>
+            <form id="booking-form">
+                <input type="text" id="patientId" placeholder="Your Patient ID (e.g., p-123)" required>
+                <input type="text" id="patientName" placeholder="Your Full Name" required>
+                <select id="doctorId" required>
+                    <option value="" disabled selected>Select Doctor</option>
+                    <option value="d-001" data-name="Dr. Smith" data-specialty="Cardiology" data-fee="2000">Dr. Smith — Cardiology (LKR 2,000)</option>
+                    <option value="d-002" data-name="Dr. Jane" data-specialty="Neurology" data-fee="2500">Dr. Jane — Neurology (LKR 2,500)</option>
+                    <option value="d-003" data-name="Dr. Perera" data-specialty="Dermatology" data-fee="1500">Dr. Perera — Dermatology (LKR 1,500)</option>
+                </select>
+                <input type="date" id="appointmentDate" required>
+                <input type="time" id="startTime" required>
+                <input type="text" id="reason" placeholder="Reason for visit (e.g., Chest pain, Follow-up)" required>
+                <button type="submit">
+                    <span>🗓 Book Appointment</span>
+                </button>
+            </form>
+            <div id="booking-message" class="message-box"></div>
+        </section>
+
+        <!-- ═══ PAYMENT ═══ -->
+        <section id="payment" class="hidden">
+            <div class="section-header">
+                <h2>💳 Process Payment</h2>
+                <p class="subtitle">Complete your booking by paying the consultation fee.</p>
+            </div>
+            <div id="payment-details" class="info-card"></div>
+            <div class="btn-row">
+                <button id="pay-btn" class="btn-primary">💰 Pay Now</button>
+                <button id="cancel-pay-btn" class="btn-secondary" onclick="showSection('my-appointments')">Cancel</button>
+            </div>
+            <div id="payment-message" class="message-box"></div>
+        </section>
+
+        <!-- ═══ MY APPOINTMENTS ═══ -->
+        <section id="my-appointments" class="hidden">
+            <div class="section-header">
+                <h2>📅 My Appointments</h2>
+                <p class="subtitle">Track your bookings, queue status, and payments.</p>
+            </div>
+            <div class="controls">
+                <input type="text" id="search-patient-id" placeholder="Enter your Patient ID (e.g., p-123)">
+                <button onclick="fetchAppointments()">🔍 Search</button>
+            </div>
+            <div id="appointments-container">
+                <table id="appointments-table">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>Doctor</th>
+                            <th>Status</th>
+                            <th>Payment</th>
+                            <th>Queue #</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div id="empty-appointments" class="empty-state hidden">
+                    <p>📭 No appointments found. Try searching with your Patient ID.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ PAYMENT HISTORY ═══ -->
+        <section id="payment-history" class="hidden">
+            <div class="section-header">
+                <h2>🧾 Payment History</h2>
+                <p class="subtitle">View all your past transactions and download invoices.</p>
+            </div>
+            <div class="controls">
+                <input type="text" id="search-history-patient-id" placeholder="Enter your Patient ID">
+                <button onclick="fetchPaymentHistory()">🔍 Search</button>
+            </div>
+            <div id="payments-container">
+                <table id="payment-history-table">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Method</th>
+                            <th>Status</th>
+                            <th>Invoice</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div id="empty-payments" class="empty-state hidden">
+                    <p>📭 No payments found.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>© 2026 PrimeHealth Microservices — Sithmi's Module (Appointment & Payment)</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
