@@ -86,3 +86,23 @@ CLAUDE.md
 design.md
 
 do_git.ps1
+
+# Ignore user-specified files
+
+.env
+
+agent/
+
+agents/
+
+claude/
+
+docs/
+
+*.pdf
+
+CLAUDE.md
+
+design.md
+
+do_git.ps1
