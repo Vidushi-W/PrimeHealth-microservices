@@ -135,4 +135,6 @@ router.get(
   doctorController.getPatientSummary
 );
 
+router.post('/api/internal/doctors/sync', doctorController.syncDoctorFromAdmin);
+
 module.exports = router;

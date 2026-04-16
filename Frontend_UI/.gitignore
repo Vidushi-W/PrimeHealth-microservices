@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+patient-service-frontend/
+telemedicine_frontend(temp)/
+telemedicine_frontend(temp)/dist
 *.local
 
 # Editor directories and files

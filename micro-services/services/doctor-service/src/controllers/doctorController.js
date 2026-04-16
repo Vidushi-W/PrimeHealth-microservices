@@ -88,6 +88,15 @@ const getPatientSummary = asyncHandler(async (req, res) => {
   });
 });
 
+const syncDoctorFromAdmin = asyncHandler(async (req, res) => {
+  const result = await doctorService.syncDoctorFromAdmin(req.body, req.headers);
+  res.status(200).json({
+    success: true,
+    message: 'Doctor synced from admin service',
+    data: result
+  });
+});
+
 module.exports = {
   listDoctors,
   registerDoctor,
@@ -97,5 +106,6 @@ module.exports = {
   getAvailability,
   updateAvailabilitySlotStatus,
   getNextAvailableSlot,
-  getPatientSummary
+  getPatientSummary,
+  syncDoctorFromAdmin
 };

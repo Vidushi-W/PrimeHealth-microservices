@@ -91,21 +91,21 @@ function DoctorListPage() {
             ) : null}
           </div>
 
-          <div className="rounded-lg bg-slate-900 p-6 text-white shadow-soft">
-            <p className="text-sm font-medium text-white/70">My practice today</p>
+          <div className="rounded-lg border border-brand-100 bg-brand-50 p-6 text-slate-900 shadow-soft">
+            <p className="text-sm font-medium text-brand-700">My practice today</p>
             <div className="mt-6 space-y-5">
               <div>
                 <p className="text-4xl font-semibold">{appointmentSummary.total}</p>
-                <p className="mt-2 text-sm text-white/70">appointments booked for your profile</p>
+                <p className="mt-2 text-sm text-slate-600">appointments booked for your profile</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-white/10 bg-white/10 p-4">
-                  <p className="text-sm text-white/70">Specialization</p>
-                  <p className="mt-2 font-semibold">{currentDoctor?.specialization || 'Not set'}</p>
+                <div className="rounded-lg border border-brand-100 bg-white p-4 shadow-sm">
+                  <p className="text-sm text-slate-500">Specialization</p>
+                  <p className="mt-2 font-semibold text-slate-900">{currentDoctor?.specialization || 'Not set'}</p>
                 </div>
-                <div className="rounded-lg border border-white/10 bg-white/10 p-4">
-                  <p className="text-sm text-white/70">Experience</p>
-                  <p className="mt-2 font-semibold">
+                <div className="rounded-lg border border-brand-100 bg-white p-4 shadow-sm">
+                  <p className="text-sm text-slate-500">Experience</p>
+                  <p className="mt-2 font-semibold text-slate-900">
                     {currentDoctor?.experience ?? 0} years
                   </p>
                 </div>

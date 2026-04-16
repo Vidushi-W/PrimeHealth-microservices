@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const axios = require('axios');
 const auth = require('./middleware/auth');
 const Admin = require('./models/Admin');
 const Doctor = require('./models/Doctor');
@@ -21,6 +22,10 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const DOCTOR_SERVICE_URL = process.env.DOCTOR_SERVICE_URL || 'http://localhost:5002';
+const PATIENT_SERVICE_URL = process.env.PATIENT_SERVICE_URL || 'http://localhost:5007';
+const INTERNAL_SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || '';
+const CROSS_SERVICE_SYNC_STRICT = process.env.CROSS_SERVICE_SYNC_STRICT === 'true';
 
 app.use(cors());
 app.use(express.json());
@@ -59,8 +64,7 @@ const requireServiceReady = (req, res, next) => {
 
 const connectDatabase = async () => {
     if (!process.env.MONGO_URI) {
-        console.warn('MONGO_URI is not set. Starting API without DB connection.');
-        return;
+        throw new Error('MONGO_URI is not set. Admin analytics service requires Atlas connectivity.');
     }
 
     try {
@@ -68,14 +72,14 @@ const connectDatabase = async () => {
         console.log('Connected to MongoDB');
         await ensureUserUniqueIds();
     } catch (error) {
-        console.error('MongoDB connection failed:', error.message);
+        throw error;
     }
 };
 
 const managedRoleConfig = {
-    admin: { model: Admin, searchFields: ['email'] },
-    doctor: { model: Doctor, searchFields: ['name', 'email', 'specialty'] },
-    patient: { model: Patient, searchFields: ['name', 'email'] }
+    admin: { model: Admin, searchFields: ['uniqueId', 'email'] },
+    doctor: { model: Doctor, searchFields: ['uniqueId', 'name', 'email', 'specialty'] },
+    patient: { model: Patient, searchFields: ['uniqueId', 'name', 'email'] }
 };
 
 const authRoleConfig = {
@@ -220,6 +224,85 @@ const ensureUserUniqueIds = async () => {
 };
 
 const getRoleModel = (role) => managedRoleConfig[role]?.model || null;
+
+const normalizeSyncStatus = (status) => String(status || '').trim().toLowerCase();
+
+const isActiveFromStatus = (status) => !['deactivated', 'inactive', 'suspended'].includes(normalizeSyncStatus(status));
+
+const isVerifiedFromStatus = (status) => normalizeSyncStatus(status) === 'verified';
+
+const buildInternalSyncHeaders = () => {
+    const headers = { 'Content-Type': 'application/json' };
+
+    if (INTERNAL_SERVICE_TOKEN) {
+        headers['x-internal-service-token'] = INTERNAL_SERVICE_TOKEN;
+    }
+
+    return headers;
+};
+
+const formatSyncError = (error) => error?.response?.data?.message || error?.message || 'Unknown sync error';
+
+const runSyncOperation = async (syncLabel, operation) => {
+    try {
+        await operation();
+        return { ok: true, service: syncLabel };
+    } catch (error) {
+        const message = formatSyncError(error);
+        console.error(`[SYNC] ${syncLabel} failed: ${message}`);
+
+        if (CROSS_SERVICE_SYNC_STRICT) {
+            const strictError = new Error(`${syncLabel} failed: ${message}`);
+            strictError.cause = error;
+            throw strictError;
+        }
+
+        return { ok: false, service: syncLabel, message };
+    }
+};
+
+const syncDoctorToDoctorService = async (doctorDoc) =>
+    runSyncOperation('doctor-service', async () => {
+        await axios.post(
+            `${DOCTOR_SERVICE_URL}/api/internal/doctors/sync`,
+            {
+                id: doctorDoc._id.toString(),
+                externalRef: doctorDoc._id.toString(),
+                uniqueId: doctorDoc.uniqueId || '',
+                name: doctorDoc.name,
+                email: doctorDoc.email,
+                specialty: doctorDoc.specialty || '',
+                specialization: doctorDoc.specialty || '',
+                experience: Number(doctorDoc.experience || 0),
+                status: doctorDoc.status,
+                isActive: isActiveFromStatus(doctorDoc.status),
+                isVerified: isVerifiedFromStatus(doctorDoc.status)
+            },
+            { headers: buildInternalSyncHeaders(), timeout: 10000 }
+        );
+    });
+
+const syncUserToPatientService = async (role, userDoc) =>
+    runSyncOperation('patient-service', async () => {
+        await axios.post(
+            `${PATIENT_SERVICE_URL}/api/internal/users/sync`,
+            {
+                id: userDoc._id.toString(),
+                adminId: userDoc._id.toString(),
+                externalRef: userDoc._id.toString(),
+                uniqueId: userDoc.uniqueId || '',
+                role,
+                fullName: userDoc.name || userDoc.email,
+                name: userDoc.name || userDoc.email,
+                email: userDoc.email,
+                passwordHash: userDoc.passwordHash || '',
+                status: userDoc.status,
+                isActive: isActiveFromStatus(userDoc.status),
+                isVerified: isVerifiedFromStatus(userDoc.status)
+            },
+            { headers: buildInternalSyncHeaders(), timeout: 10000 }
+        );
+    });
 
 const parsePagination = (query) => {
     const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
@@ -445,6 +528,7 @@ app.post('/api/auth/register', requireServiceReady, async (req, res) => {
         };
 
         let createdUser;
+        let sync = [];
 
         if (role === 'admin') {
             createdUser = await model.create({
@@ -459,18 +543,26 @@ app.post('/api/auth/register', requireServiceReady, async (req, res) => {
                 specialty: specialty || '',
                 permissions: []
             });
+            sync = await Promise.all([
+                syncDoctorToDoctorService(createdUser),
+                syncUserToPatientService('doctor', createdUser)
+            ]);
         } else {
             createdUser = await model.create({
                 ...commonFields,
                 name,
                 permissions: []
             });
+            sync = await Promise.all([
+                syncUserToPatientService('patient', createdUser)
+            ]);
         }
 
         return res.status(201).json({
             success: true,
             message: `${role} account registered successfully.`,
-            user: role === 'admin' ? toSafeAdmin(createdUser) : toSafeUser(role, createdUser)
+            user: role === 'admin' ? toSafeAdmin(createdUser) : toSafeUser(role, createdUser),
+            sync
         });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'User');
@@ -822,6 +914,21 @@ app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermis
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        let sync = [];
+
+        if (role === 'doctor') {
+            sync = await Promise.all([
+                syncDoctorToDoctorService(updatedUser),
+                syncUserToPatientService('doctor', updatedUser)
+            ]);
+        }
+
+        if (role === 'patient') {
+            sync = await Promise.all([
+                syncUserToPatientService('patient', updatedUser)
+            ]);
+        }
+
         await logAudit(req, {
             action: `user.${role}.updated`,
             targetType: role,
@@ -830,7 +937,7 @@ app.patch('/api/admin/users/:role/:id', requireServiceReady, auth, requirePermis
             metadata: { updates: Object.keys(updates) }
         });
 
-        return res.json({ success: true, user: toSafeUser(role, updatedUser) });
+        return res.json({ success: true, user: toSafeUser(role, updatedUser), sync });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'User');
 
@@ -878,6 +985,21 @@ app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requir
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        let sync = [];
+
+        if (role === 'doctor') {
+            sync = await Promise.all([
+                syncDoctorToDoctorService(user),
+                syncUserToPatientService('doctor', user)
+            ]);
+        }
+
+        if (role === 'patient') {
+            sync = await Promise.all([
+                syncUserToPatientService('patient', user)
+            ]);
+        }
+
         await logAudit(req, {
             action: `user.${role}.status.changed`,
             targetType: role,
@@ -886,7 +1008,7 @@ app.patch('/api/admin/users/:role/:id/status', requireServiceReady, auth, requir
             metadata: { status }
         });
 
-        return res.json({ success: true, user: toSafeUser(role, user) });
+        return res.json({ success: true, user: toSafeUser(role, user), sync });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to update user status', error: error.message });
     }
@@ -1272,6 +1394,11 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermissio
             lastActiveAt: new Date()
         });
 
+        const sync = await Promise.all([
+            syncDoctorToDoctorService(doctor),
+            syncUserToPatientService('doctor', doctor)
+        ]);
+
         await logAudit(req, {
             action: 'user.doctor.created',
             targetType: 'doctor',
@@ -1280,7 +1407,7 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermissio
             metadata: { status: doctor.status }
         });
 
-        return res.status(201).json({ success: true, doctor: toSafeUser('doctor', doctor) });
+        return res.status(201).json({ success: true, doctor: toSafeUser('doctor', doctor), sync });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Doctor');
 
@@ -1340,6 +1467,11 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePerm
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
+        const sync = await Promise.all([
+            syncDoctorToDoctorService(doctor),
+            syncUserToPatientService('doctor', doctor)
+        ]);
+
         await logAudit(req, {
             action: 'user.doctor.updated',
             targetType: 'doctor',
@@ -1348,7 +1480,7 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePerm
             metadata: { updates: Object.keys(updates) }
         });
 
-        return res.json({ success: true, doctor: toSafeUser('doctor', doctor) });
+        return res.json({ success: true, doctor: toSafeUser('doctor', doctor), sync });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Doctor');
 
@@ -1378,6 +1510,11 @@ app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, requ
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
+        const sync = await Promise.all([
+            syncDoctorToDoctorService(doctor),
+            syncUserToPatientService('doctor', doctor)
+        ]);
+
         await logAudit(req, {
             action: 'user.doctor.verified',
             targetType: 'doctor',
@@ -1385,7 +1522,7 @@ app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, requ
             targetEmail: doctor.email
         });
 
-        return res.json({ success: true, message: `Doctor ${doctor.name} verified successfully`, doctor: toSafeUser('doctor', doctor) });
+        return res.json({ success: true, message: `Doctor ${doctor.name} verified successfully`, doctor: toSafeUser('doctor', doctor), sync });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to verify doctor', error: error.message });
     }
@@ -1407,6 +1544,11 @@ app.patch('/api/admin/users/doctors/:id/deactivate', requireServiceReady, auth, 
             return res.status(404).json({ success: false, message: 'Doctor not found' });
         }
 
+        const sync = await Promise.all([
+            syncDoctorToDoctorService(doctor),
+            syncUserToPatientService('doctor', doctor)
+        ]);
+
         await logAudit(req, {
             action: 'user.doctor.deactivated',
             targetType: 'doctor',
@@ -1414,7 +1556,7 @@ app.patch('/api/admin/users/doctors/:id/deactivate', requireServiceReady, auth, 
             targetEmail: doctor.email
         });
 
-        return res.json({ success: true, message: `Doctor ${doctor.name} deactivated successfully`, doctor: toSafeUser('doctor', doctor) });
+        return res.json({ success: true, message: `Doctor ${doctor.name} deactivated successfully`, doctor: toSafeUser('doctor', doctor), sync });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to deactivate doctor', error: error.message });
     }
@@ -1605,6 +1747,10 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermissi
             lastActiveAt: new Date()
         });
 
+        const sync = await Promise.all([
+            syncUserToPatientService('patient', patient)
+        ]);
+
         await logAudit(req, {
             action: 'user.patient.created',
             targetType: 'patient',
@@ -1613,7 +1759,7 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermissi
             metadata: { status: patient.status }
         });
 
-        return res.status(201).json({ success: true, patient: toSafeUser('patient', patient) });
+        return res.status(201).json({ success: true, patient: toSafeUser('patient', patient), sync });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Patient');
 
@@ -1672,6 +1818,10 @@ app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, requirePer
             return res.status(404).json({ success: false, message: 'Patient not found' });
         }
 
+        const sync = await Promise.all([
+            syncUserToPatientService('patient', patient)
+        ]);
+
         await logAudit(req, {
             action: 'user.patient.updated',
             targetType: 'patient',
@@ -1680,7 +1830,7 @@ app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, requirePer
             metadata: { updates: Object.keys(updates) }
         });
 
-        return res.json({ success: true, patient: toSafeUser('patient', patient) });
+        return res.json({ success: true, patient: toSafeUser('patient', patient), sync });
     } catch (error) {
         const duplicateMessage = parseDuplicateKeyError(error, 'Patient');
 
@@ -1836,11 +1986,16 @@ app.use((req, res) => {
 });
 
 const start = async () => {
-    await connectDatabase();
+    try {
+        await connectDatabase();
 
-    app.listen(PORT, () => {
-        console.log(`Admin Analytics Service running on port ${PORT}`);
-    });
+        app.listen(PORT, () => {
+            console.log(`Admin Analytics Service running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error('Admin Analytics Service failed to start:', error.message);
+        process.exit(1);
+    }
 };
 
 start();

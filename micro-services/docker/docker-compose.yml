@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:latest
@@ -18,6 +16,8 @@ services:
     build:
       context: ../services/admin-analytics-service
     container_name: primehealth-admin-service
+    env_file:
+      - ../../.env
     ports:
       - "5001:5001"
     dns:
@@ -25,9 +25,14 @@ services:
       - 1.1.1.1
     environment:
       - PORT=5001
-      - MONGO_URI=${ADMIN_MONGO_URI:-mongodb://mongodb:27017/admin_analytics}
+      - MONGO_URI=${ADMIN_MONGO_URI}
       - JWT_SECRET=${JWT_SECRET:-primehealth_dev_secret}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - DOCTOR_SERVICE_URL=http://doctor-service:5002
+      - PATIENT_SERVICE_URL=http://patient-service:5001
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
+      - CROSS_SERVICE_SYNC_STRICT=${CROSS_SERVICE_SYNC_STRICT:-false}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
     depends_on:
       - mongodb
     networks:
@@ -38,14 +43,38 @@ services:
     build:
       context: ../services/doctor-service
       dockerfile: Dockerfile
+    env_file:
+      - ../../.env
     ports:
       - "5002:5002"
     environment:
       - PORT=5002
       - NODE_ENV=production
-      - MONGO_URI=${MONGO_URI_DOCTOR}
-      - CORS_ORIGIN=http://localhost:5173
+      - MONGO_URI=${MONGO_URI_DOCTOR:-mongodb://mongodb:27017/doctor-db}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - PRESCRIPTION_SERVICE_URL=http://prescription-service:5005
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
+    depends_on:
+      - mongodb
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+  patient-service:
+    build:
+      context: ../services/patient-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+    ports:
+      - "5007:5001"
+    environment:
+      - PORT=5001
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI_PATIENT:-mongodb://mongodb:27017/patient-db}
+      - JWT_SECRET=${JWT_SECRET:-primehealth_dev_secret}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
     depends_on:
       - mongodb
     networks:
@@ -56,13 +85,15 @@ services:
     build:
       context: ../services/appointment-service
       dockerfile: Dockerfile
+    env_file:
+      - ../../.env
     ports:
       - "5003:5003"
     environment:
       - PORT=5003
       - NODE_ENV=production
-      - MONGO_URI=${MONGO_URI_APPOINTMENT}
-      - CORS_ORIGIN=http://localhost:5173
+      - MONGO_URI=${MONGO_URI_APPOINTMENT:-mongodb://mongodb:27017/appointment-db}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - DOCTOR_SERVICE_URL=http://doctor-service:5002
       - PAYMENT_SERVICE_URL=http://payment-service:5004
     depends_on:
@@ -76,13 +107,15 @@ services:
     build:
       context: ../services/payment-service
       dockerfile: Dockerfile
+    env_file:
+      - ../../.env
     ports:
       - "5004:5004"
     environment:
       - PORT=5004
       - NODE_ENV=production
-      - MONGO_URI=${MONGO_URI_PAYMENT}
-      - CORS_ORIGIN=http://localhost:5173
+      - MONGO_URI=${MONGO_URI_PAYMENT:-mongodb://mongodb:27017/payment-db}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
     depends_on:
       - mongodb
@@ -95,13 +128,15 @@ services:
     build:
       context: ../services/prescription-service
       dockerfile: Dockerfile
+    env_file:
+      - ../../.env
     ports:
       - "5005:5005"
     environment:
       - PORT=5005
       - NODE_ENV=production
-      - MONGO_URI=${MONGO_URI_PRESCRIPTION}
-      - CORS_ORIGIN=http://localhost:5173
+      - MONGO_URI=${MONGO_URI_PRESCRIPTION:-mongodb://mongodb:27017/prescription-db}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
     depends_on:
       - mongodb
     networks:
@@ -112,6 +147,8 @@ services:
     build:
       context: ../services/telemedicine-service
     container_name: primehealth-telemedicine-service
+    env_file:
+      - ../../.env
     ports:
       - "5006:5003"
     dns:
@@ -131,21 +168,6 @@ services:
       - mongodb
     volumes:
       - telemedicine_uploads:/app/uploads
-    networks:
-      - primehealth-net
-    restart: unless-stopped
-
-  telemedicine-frontend:
-    build:
-      context: ../../Frontend_UI/telemedicine_frontend(temp)
-      dockerfile: Dockerfile
-    container_name: primehealth-telemedicine-frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_BACKEND_URL=http://localhost:5006
-    depends_on:
-      - telemedicine-service
     networks:
       - primehealth-net
     restart: unless-stopped

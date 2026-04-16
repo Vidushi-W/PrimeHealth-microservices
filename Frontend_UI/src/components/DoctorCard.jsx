@@ -4,7 +4,7 @@ function DoctorCard({ doctor }) {
   return (
     <Link
       to={`/doctors/${doctor._id}`}
-      className="group panel block p-6 transition hover:-translate-y-1 hover:border-brand-300"
+      className="group panel block p-6 transition hover:-translate-y-1 hover:border-brand-200"
     >
       <div className="flex items-start justify-between gap-4">
         <div>

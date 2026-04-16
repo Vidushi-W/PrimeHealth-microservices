@@ -24,6 +24,18 @@ const userSchema = new mongoose.Schema(
       required: true,
       enum: ["patient", "doctor", "admin"],
     },
+    externalRef: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
+    uniqueId: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
     phone: {
       type: String,
       trim: true,

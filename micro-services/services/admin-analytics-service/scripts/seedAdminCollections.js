@@ -23,8 +23,13 @@ if (!MONGO_URI) {
 async function ensureSeedData() {
   await mongoose.connect(MONGO_URI);
 
-  const adminEmail = 'admin@primehealth.local';
-  const adminPassword = 'Admin@12345';
+  const adminEmail = (process.env.ADMIN_SEED_EMAIL || '').trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_SEED_PASSWORD || '';
+
+  if (!adminEmail || !adminPassword) {
+    throw new Error('Missing ADMIN_SEED_EMAIL or ADMIN_SEED_PASSWORD in environment. Refusing to seed hardcoded admin credentials.');
+  }
+
   const passwordHash = await bcrypt.hash(adminPassword, 10);
 
   const admin = await Admin.findOneAndUpdate(
@@ -123,7 +128,7 @@ async function ensureSeedData() {
 
   console.log('Seed complete.');
   console.log('Login email:', adminEmail);
-  console.log('Login password:', adminPassword);
+  console.log('Login password: [hidden]');
   console.log('Collection totals:', JSON.stringify(totals, null, 2));
 
   await mongoose.disconnect();

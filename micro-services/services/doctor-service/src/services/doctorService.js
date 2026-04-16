@@ -10,6 +10,43 @@ const SLOT_STATUS = {
   BOOKED: 'booked'
 };
 
+const ADMIN_SYNC_ALLOWED_STATUSES = new Set([
+  'pending',
+  'active',
+  'verified',
+  'inactive',
+  'suspended',
+  'deactivated'
+]);
+
+function normalizeStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (ADMIN_SYNC_ALLOWED_STATUSES.has(normalized)) {
+    return normalized;
+  }
+
+  return 'active';
+}
+
+function toBoolean(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  return Boolean(value);
+}
+
+function assertInternalSyncAuthorized(headers = {}) {
+  const expectedToken = process.env.INTERNAL_SERVICE_TOKEN;
+
+  if (!expectedToken) {
+    return;
+  }
+
+  const providedToken = headers['x-internal-service-token'] || '';
+
+  if (providedToken !== expectedToken) {
+    throw new ApiError(403, 'Forbidden: invalid internal service token');
+  }
+}
+
 function parseTimeToMinutes(hhmm) {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(hhmm));
   if (!match) return null;
@@ -181,6 +218,11 @@ async function listDoctors(filters = {}) {
 
   if (filters.specialization) {
     query.specialization = new RegExp(`^${String(filters.specialization).trim()}$`, 'i');
+  }
+
+  if (filters.includeInactive !== 'true') {
+    query.isActive = true;
+    query.status = { $nin: ['deactivated', 'inactive', 'suspended'] };
   }
 
   const doctors = await Doctor.find(query).sort({ name: 1 });
@@ -358,6 +400,67 @@ async function getPatientSummary(doctorId, patientId) {
   };
 }
 
+async function syncDoctorFromAdmin(payload, headers = {}) {
+  assertInternalSyncAuthorized(headers);
+
+  const email = String(payload?.email || '').trim().toLowerCase();
+  if (!email) {
+    throw new ApiError(400, 'email is required for doctor sync');
+  }
+
+  const externalRef = String(payload?.externalRef || payload?.adminId || payload?.id || '').trim();
+  const uniqueId = String(payload?.uniqueId || '').trim();
+  const incomingStatus = normalizeStatus(payload?.status);
+  const explicitIsActive = payload?.isActive;
+  const explicitIsVerified = payload?.isVerified;
+
+  const existingDoctor = await Doctor.findOne({
+    $or: [
+      ...(externalRef ? [{ externalRef }] : []),
+      ...(uniqueId ? [{ uniqueId }] : []),
+      { email }
+    ]
+  });
+
+  const stableId =
+    existingDoctor?._id ||
+    uniqueId ||
+    externalRef ||
+    email;
+
+  const computedIsActive =
+    explicitIsActive !== undefined
+      ? Boolean(explicitIsActive)
+      : !['deactivated', 'inactive', 'suspended'].includes(incomingStatus);
+
+  const computedIsVerified =
+    explicitIsVerified !== undefined
+      ? Boolean(explicitIsVerified)
+      : incomingStatus === 'verified';
+
+  const updates = {
+    _id: stableId,
+    ...(externalRef ? { externalRef } : {}),
+    ...(uniqueId ? { uniqueId } : {}),
+    email,
+    name: String(payload?.name || payload?.fullName || existingDoctor?.name || email).trim(),
+    specialization: String(payload?.specialization || payload?.specialty || existingDoctor?.specialization || 'General').trim(),
+    experience: Number.isFinite(Number(payload?.experience)) ? Math.max(0, Number(payload.experience)) : Number(existingDoctor?.experience || 0),
+    status: incomingStatus,
+    isActive: toBoolean(computedIsActive, true),
+    isVerified: toBoolean(computedIsVerified, false)
+  };
+
+  const syncedDoctor = await Doctor.findByIdAndUpdate(stableId, updates, {
+    new: true,
+    upsert: true,
+    runValidators: true,
+    setDefaultsOnInsert: true
+  });
+
+  return syncedDoctor;
+}
+
 module.exports = {
   listDoctors,
   registerDoctor,
@@ -367,5 +470,6 @@ module.exports = {
   getAvailability,
   updateAvailabilitySlotStatus,
   getNextAvailableSlot,
-  getPatientSummary
+  getPatientSummary,
+  syncDoctorFromAdmin
 };

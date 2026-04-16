@@ -55,6 +55,8 @@ Frontend_UI/.env.development.local
 Frontend_UI/.env.production.local
 Frontend_UI/.env.test.local
 Frontend_UI/dist/
+Frontend_UI/patient-service-frontend/
+Frontend_UI/telemedicine_frontend(temp)/
 Frontend_UI/telemedicine_frontend(temp)/.env.local
 Frontend_UI/telemedicine_frontend(temp)/.env.development.local
 Frontend_UI/telemedicine_frontend(temp)/.env.production.local
