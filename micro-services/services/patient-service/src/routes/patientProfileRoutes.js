@@ -16,6 +16,14 @@ const {
   getDoctors,
   getDoctorSlots,
 } = require("../controllers/patientAppointmentController");
+const {
+  createPatientReminder,
+  deletePatientReminder,
+  getPatientReminders,
+  getUpcomingPatientReminders,
+  markPatientReminderDone,
+  updatePatientReminder,
+} = require("../controllers/reminderController");
 const { calculateRisk, getRiskHistory } = require("../controllers/riskAssessmentController");
 const { runSymptomCheck } = require("../controllers/symptomCheckerController");
 const { authorizeRoles, protect } = require("../middleware/auth");
@@ -34,6 +42,12 @@ router.delete("/reports/:reportId", deleteReport);
 router.post("/symptoms/check", runSymptomCheck);
 router.post("/risk-score/calculate", calculateRisk);
 router.get("/risk-score/history", getRiskHistory);
+router.post("/reminders", createPatientReminder);
+router.get("/reminders", getPatientReminders);
+router.get("/reminders/upcoming", getUpcomingPatientReminders);
+router.put("/reminders/:id", updatePatientReminder);
+router.patch("/reminders/:id/mark-done", markPatientReminderDone);
+router.delete("/reminders/:id", deletePatientReminder);
 router.get("/doctors", getDoctors);
 router.get("/doctors/:doctorId/slots", getDoctorSlots);
 router.get("/appointments", getAppointments);

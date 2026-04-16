@@ -5,6 +5,7 @@ import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/Aut
 import BookAppointmentPage from './pages/BookAppointmentPage';
 import MedicalHistoryPage from './pages/MedicalHistoryPage';
 import ProfilePage from './pages/ProfilePage';
+import RemindersPage from './pages/RemindersPage';
 import RiskScorePage from './pages/RiskScorePage';
 import RoleDashboard from './pages/RoleDashboard';
 import SymptomCheckerPage from './pages/SymptomCheckerPage';
@@ -79,6 +80,7 @@ function AppShell() {
               <NavLink to={getDefaultRoute(auth.user?.role)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Dashboard</NavLink>
               {auth.user?.role === 'patient' ? <NavLink to="/patient/profile" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>My Profile</NavLink> : null}
               {auth.user?.role === 'patient' ? <NavLink to="/patient/history" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Medical History</NavLink> : null}
+              {auth.user?.role === 'patient' ? <NavLink to="/patient/reminders" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Reminders</NavLink> : null}
               {auth.user?.role === 'patient' ? <NavLink to="/patient/risk-score" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Risk Score</NavLink> : null}
               <span className="nav-user">
                 <span className="nav-user-label">Signed in as</span>
@@ -124,6 +126,14 @@ function AppShell() {
             element={(
               <ProtectedRoute auth={auth} allowedRoles={['patient']}>
                 <MedicalHistoryPage auth={auth} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/patient/reminders"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <RemindersPage auth={auth} />
               </ProtectedRoute>
             )}
           />

@@ -348,6 +348,12 @@ function buildQuickActions(userId) {
       ctaLabel: "Calculate risk score",
       route: "/patient/risk-score",
     },
+    reminders: {
+      title: "Reminders",
+      description: "Track medication schedules and appointment follow-ups in one place.",
+      ctaLabel: "Open reminders",
+      route: "/patient/reminders",
+    },
     profile: {
       title: "My profile",
       description: "Update medical details, contact info, and emergency contacts.",

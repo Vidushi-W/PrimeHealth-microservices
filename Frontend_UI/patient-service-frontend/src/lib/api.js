@@ -184,6 +184,64 @@ export async function getRiskScoreHistory(token) {
   return parseResponse(response);
 }
 
+export async function getReminders(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function createReminder(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function updateReminder(token, reminderId, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders/${reminderId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function markReminderDone(token, reminderId) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders/${reminderId}/mark-done`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function deleteReminder(token, reminderId) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders/${reminderId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
 export async function createAppointment(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
     method: 'POST',

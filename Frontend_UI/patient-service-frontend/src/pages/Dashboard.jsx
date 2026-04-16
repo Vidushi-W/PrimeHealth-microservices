@@ -356,6 +356,9 @@ function Dashboard({ auth, onProfileSync }) {
             <Link className="btn btn-secondary" to={homeData?.quickActions?.riskScore?.route || '/patient/risk-score'}>
               {homeData?.quickActions?.riskScore?.ctaLabel || 'Calculate risk score'}
             </Link>
+            <Link className="btn btn-secondary" to={homeData?.quickActions?.reminders?.route || '/patient/reminders'}>
+              {homeData?.quickActions?.reminders?.ctaLabel || 'Open reminders'}
+            </Link>
             <a className="btn btn-secondary" href={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
               {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
             </a>
