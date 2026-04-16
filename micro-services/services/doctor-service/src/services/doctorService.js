@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Doctor = require('../models/Doctor');
 const ApiError = require('../utils/ApiError');
 const { fetchPrescriptionsByPatient } = require('./prescriptionServiceClient');
+const { fetchPatientSummary } = require('./patientServiceClient');
 
 const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -152,22 +153,19 @@ async function getPatientSummary(doctorId, patientId) {
   await getDoctorById(doctorId);
 
   const allPatientPrescriptions = await fetchPrescriptionsByPatient(patientId);
+  const patientSummary = await fetchPatientSummary(patientId);
   const prescriptionsForDoctor = (allPatientPrescriptions || []).filter(
     (p) => String(p.doctorId) === String(doctorId)
   );
 
   return {
-    patient: {
-      id: patientId,
-      name: 'Mock Patient',
-      age: 34,
-      gender: 'Unknown',
-      lastVisit: null
-    },
+    patient: patientSummary.patient,
     stats: {
-      totalPrescriptions: prescriptionsForDoctor.length
+      totalPrescriptions: prescriptionsForDoctor.length,
+      totalReports: Array.isArray(patientSummary.reports) ? patientSummary.reports.length : 0
     },
-    prescriptions: prescriptionsForDoctor
+    prescriptions: prescriptionsForDoctor,
+    reports: patientSummary.reports || []
   };
 }
 
