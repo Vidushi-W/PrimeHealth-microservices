@@ -342,6 +342,12 @@ function buildQuickActions(userId) {
       route: "/symptom-checker",
       userId,
     },
+    riskScore: {
+      title: "Risk score",
+      description: "Estimate your current health risk indicators from vitals and lifestyle factors.",
+      ctaLabel: "Calculate risk score",
+      route: "/patient/risk-score",
+    },
     profile: {
       title: "My profile",
       description: "Update medical details, contact info, and emergency contacts.",

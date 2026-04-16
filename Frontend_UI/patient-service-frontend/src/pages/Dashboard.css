@@ -554,6 +554,127 @@
   align-items: center;
 }
 
+.risk-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(214, 223, 218, 0.88);
+  background: linear-gradient(180deg, #ffffff, #fbfdfc);
+  color: var(--color-text);
+}
+
+.checkbox-field input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary);
+}
+
+.history-bullet-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.history-bullet-list p {
+  position: relative;
+  padding-left: 1rem;
+}
+
+.history-bullet-list p::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: rgba(82, 183, 136, 0.8);
+}
+
+.metric-bar-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.metric-bar-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.metric-bar-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--color-text);
+  font-size: 0.92rem;
+}
+
+.metric-bar-track {
+  width: 100%;
+  height: 0.8rem;
+  border-radius: 999px;
+  background: rgba(82, 183, 136, 0.1);
+  overflow: hidden;
+}
+
+.metric-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(82, 183, 136, 0.72), rgba(82, 183, 136, 1));
+}
+
+.trend-chart-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  margin-bottom: 1rem;
+  border-radius: 1.15rem;
+  background: linear-gradient(180deg, #ffffff, #fbfdfc);
+  border: 1px solid rgba(214, 223, 218, 0.88);
+}
+
+.trend-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.trend-axis {
+  stroke: rgba(153, 168, 160, 0.75);
+  stroke-width: 1.25;
+}
+
+.trend-line {
+  stroke: var(--color-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trend-point {
+  fill: var(--color-primary);
+}
+
+.trend-score-label {
+  fill: var(--color-text);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.trend-date-label {
+  fill: var(--color-text-muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
 .booking-schedule-note {
   display: grid;
   gap: 0.35rem;

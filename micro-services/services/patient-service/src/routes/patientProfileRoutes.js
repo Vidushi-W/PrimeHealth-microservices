@@ -16,6 +16,7 @@ const {
   getDoctors,
   getDoctorSlots,
 } = require("../controllers/patientAppointmentController");
+const { calculateRisk, getRiskHistory } = require("../controllers/riskAssessmentController");
 const { runSymptomCheck } = require("../controllers/symptomCheckerController");
 const { authorizeRoles, protect } = require("../middleware/auth");
 
@@ -31,6 +32,8 @@ router.post("/reports", uploadReport);
 router.post("/reports/:reportId/analyze", analyzeReport);
 router.delete("/reports/:reportId", deleteReport);
 router.post("/symptoms/check", runSymptomCheck);
+router.post("/risk-score/calculate", calculateRisk);
+router.get("/risk-score/history", getRiskHistory);
 router.get("/doctors", getDoctors);
 router.get("/doctors/:doctorId/slots", getDoctorSlots);
 router.get("/appointments", getAppointments);

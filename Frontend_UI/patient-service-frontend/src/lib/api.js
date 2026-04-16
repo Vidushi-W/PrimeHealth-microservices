@@ -161,6 +161,29 @@ export async function checkSymptoms(token, payload) {
   return parseResponse(response);
 }
 
+export async function calculateRiskScore(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/risk-score/calculate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function getRiskScoreHistory(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/risk-score/history`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
 export async function createAppointment(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
     method: 'POST',
