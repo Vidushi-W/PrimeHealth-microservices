@@ -1,9 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 
-const appointmentRoutes = require('./routes/appointmentRoutes');
+const prescriptionRoutes = require('./routes/prescriptionRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const { parseAuthHeaders } = require('./middleware/auth');
@@ -24,15 +25,21 @@ app.use(
   swaggerUi.setup(buildSwaggerSpec(), { explorer: true })
 );
 
+// serve generated PDFs
+app.use(
+  '/files/prescriptions',
+  express.static(path.join(process.cwd(), 'storage', 'pdfs'))
+);
+
 app.get('/health', (_req, res) => {
   res.status(200).json({
     success: true,
     message: 'OK',
-    data: { service: 'appointment-service' }
+    data: { service: 'prescription-service' }
   });
 });
 
-app.use('/api/appointments', appointmentRoutes);
+app.use(prescriptionRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
