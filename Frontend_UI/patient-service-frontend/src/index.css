@@ -1,17 +1,20 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --color-bg: #f4efe6;
-  --color-surface: rgba(255, 251, 246, 0.82);
-  --color-border: rgba(47, 92, 152, 0.16);
-  --color-primary: #0b5fff;
-  --color-primary-hover: #0048cb;
-  --color-secondary: #ecf3ff;
-  --color-text: #18253a;
-  --color-text-muted: #60718b;
+  --color-bg: #f4f8f5;
+  --color-surface: rgba(255, 255, 255, 0.78);
+  --color-surface-solid: #ffffff;
+  --color-border: rgba(187, 198, 191, 0.68);
+  --color-primary: #52b788;
+  --color-primary-hover: #42966d;
+  --color-secondary: #edf7f1;
+  --color-text: #172127;
+  --color-text-muted: #66747d;
+  --color-text-soft: #8a969f;
   --color-danger: #b42318;
-  --color-success: #136f49;
-  --shadow-soft: 0 20px 60px rgba(30, 48, 77, 0.12);
+  --color-success: #2f8f62;
+  --shadow-soft: 0 20px 60px rgba(35, 52, 43, 0.08);
+  --shadow-card: 0 12px 30px rgba(36, 53, 45, 0.06);
   --radius-xl: 2rem;
   --radius-full: 999px;
   --transition: 180ms ease;
@@ -26,9 +29,9 @@
 html {
   min-height: 100%;
   background:
-    radial-gradient(circle at top left, rgba(11, 95, 255, 0.18), transparent 28rem),
-    radial-gradient(circle at bottom right, rgba(18, 173, 122, 0.14), transparent 26rem),
-    linear-gradient(180deg, var(--color-bg), #eef6ff 48%, #f6f0e6 100%);
+    radial-gradient(circle at top left, rgba(82, 183, 136, 0.14), transparent 26rem),
+    radial-gradient(circle at bottom right, rgba(130, 189, 159, 0.12), transparent 24rem),
+    linear-gradient(180deg, #f8fbf9, var(--color-bg) 45%, #eef4f0 100%);
 }
 
 body {
@@ -64,11 +67,12 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.72rem 1.3rem;
+  min-height: 2.85rem;
+  padding: 0.72rem 1.25rem;
   border-radius: var(--radius-full);
-  border: 0;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: transform var(--transition), background-color var(--transition), color var(--transition);
+  transition: transform var(--transition), background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition);
   text-decoration: none;
   font-weight: 700;
 }
@@ -77,17 +81,33 @@ select {
   transform: translateY(-1px);
 }
 
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(82, 183, 136, 0.18);
+}
+
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary), #3a8dff);
+  background: linear-gradient(180deg, #5dc294, var(--color-primary));
   color: white;
+  box-shadow: 0 10px 24px rgba(82, 183, 136, 0.22);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #58bc8f, var(--color-primary-hover));
 }
 
 .btn-secondary {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(82, 183, 136, 0.26);
+  color: #2d684d;
+}
+
+.btn-secondary:hover {
   background: var(--color-secondary);
-  color: var(--color-text);
 }
 
 .btn.small {
+  min-height: 2.45rem;
   padding: 0.58rem 1rem;
 }
 
@@ -114,9 +134,9 @@ select {
 .navbar {
   width: min(1180px, calc(100% - 2rem));
   margin: 1rem auto 0;
-  padding: 1rem 1.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 1.4rem;
+  padding: 0.95rem 1.2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1.45rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -124,6 +144,7 @@ select {
   position: sticky;
   top: 1rem;
   z-index: 10;
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .navbar-brand {
@@ -138,22 +159,22 @@ select {
   width: 0.85rem;
   height: 0.85rem;
   border-radius: 50%;
-  background: linear-gradient(135deg, #0b5fff, #4eb7ff);
-  box-shadow: 0 0 0 0 rgba(11, 95, 255, 0.32);
+  background: linear-gradient(135deg, #52b788, #8fd6b1);
+  box-shadow: 0 0 0 0 rgba(82, 183, 136, 0.28);
   animation: pulse 2.5s infinite;
 }
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(11, 95, 255, 0.34);
+    box-shadow: 0 0 0 0 rgba(82, 183, 136, 0.3);
   }
 
   70% {
-    box-shadow: 0 0 0 14px rgba(11, 95, 255, 0);
+    box-shadow: 0 0 0 14px rgba(82, 183, 136, 0);
   }
 
   100% {
-    box-shadow: 0 0 0 0 rgba(11, 95, 255, 0);
+    box-shadow: 0 0 0 0 rgba(82, 183, 136, 0);
   }
 }
 
@@ -168,21 +189,49 @@ select {
   text-decoration: none;
   color: var(--color-text-muted);
   font-weight: 700;
+  padding: 0.62rem 0.95rem;
+  border-radius: 999px;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+.nav-link:hover {
+  background: rgba(82, 183, 136, 0.08);
+  color: var(--color-text);
+}
+
+.nav-link.active {
+  background: rgba(82, 183, 136, 0.12);
+  color: #2d684d;
 }
 
 .nav-user {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.55rem;
   color: var(--color-text-muted);
-  font-size: 0.94rem;
+  font-size: 0.92rem;
+}
+
+.nav-user-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-soft);
+}
+
+.nav-user strong {
+  color: var(--color-text);
+  font-size: 0.93rem;
 }
 
 .main-content {
   width: min(1180px, calc(100% - 2rem));
   margin: 0 auto;
-  padding: 2rem 0 3rem;
+  padding: 2.25rem 0 3rem;
 }
 
 .eyebrow {
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.76rem;
@@ -319,8 +368,8 @@ select {
 
 .form-field input:focus,
 .form-field select:focus {
-  border-color: rgba(11, 95, 255, 0.55);
-  box-shadow: 0 0 0 4px rgba(11, 95, 255, 0.1);
+  border-color: rgba(82, 183, 136, 0.55);
+  box-shadow: 0 0 0 4px rgba(82, 183, 136, 0.1);
 }
 
 .auth-submit {
@@ -345,8 +394,8 @@ select {
 
 .role-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(11, 95, 255, 0.24);
-  box-shadow: 0 16px 32px rgba(11, 95, 255, 0.08);
+  border-color: rgba(82, 183, 136, 0.24);
+  box-shadow: 0 16px 32px rgba(82, 183, 136, 0.08);
 }
 
 .role-card-kicker {
@@ -461,6 +510,11 @@ select {
   color: var(--color-success);
 }
 
+.compact-message {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+}
+
 .not-found {
   text-align: center;
   padding: 4rem;
@@ -493,6 +547,11 @@ select {
 
   .main-content {
     width: calc(100% - 1rem);
+  }
+
+  .navbar-links {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .form-row {

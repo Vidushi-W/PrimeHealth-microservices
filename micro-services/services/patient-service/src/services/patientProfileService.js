@@ -102,6 +102,22 @@ function buildHomeReminders(profile) {
   return reminders.slice(0, 3);
 }
 
+function buildAppointmentReminders(appointments = []) {
+  const pendingPayment = appointments.find((appointment) => appointment.status === "pending_payment");
+  if (!pendingPayment) {
+    return [];
+  }
+
+  return [
+    {
+      id: `payment-${pendingPayment.id}`,
+      title: "Complete appointment payment",
+      detail: `Your booking with ${pendingPayment.doctorName} is waiting for payment confirmation.`,
+      status: "action-needed",
+    },
+  ];
+}
+
 function buildWelcomeCard(user, profile) {
   return {
     title: `Welcome back, ${user.fullName.split(" ")[0] || "Patient"}`,
@@ -166,6 +182,7 @@ function buildUpcomingAppointments(appointments, profile) {
     location: appointment.hospitalOrClinic,
     mode: appointment.mode,
     timeSlot: appointment.timeSlot,
+    paymentStatus: appointment.paymentStatus,
   }));
 }
 
@@ -270,7 +287,7 @@ async function getMyPatientHome(userId) {
       upcomingAppointments: buildUpcomingAppointments(appointments, profile),
       recentPrescriptions: buildPrescriptionSummary(prescriptions),
       uploadedReports: buildUploadedReports(),
-      reminders: buildHomeReminders(profile),
+      reminders: [...buildAppointmentReminders(appointments), ...buildHomeReminders(profile)].slice(0, 3),
       quickActions: buildQuickActions(String(userId)),
     },
   };

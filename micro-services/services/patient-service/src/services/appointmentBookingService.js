@@ -10,7 +10,8 @@ function formatDateLabel(dateText) {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(`${dateText}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${dateText}T00:00:00Z`));
 }
 
 function buildAppointmentResponse(appointment) {
@@ -22,6 +23,7 @@ function buildAppointmentResponse(appointment) {
     doctorName: appointment.doctorName,
     specialization: appointment.specialization,
     hospitalOrClinic: appointment.hospitalOrClinic,
+    fee: appointment.fee,
     appointmentDate: appointment.appointmentDate,
     dateLabel: formatDateLabel(appointment.appointmentDate),
     timeSlot: appointment.timeSlot,
@@ -38,7 +40,24 @@ async function listBookableDoctors(filters) {
 }
 
 async function listDoctorSlots(doctorId, dateText, mode) {
-  return getDoctorSlots(doctorId, dateText, mode);
+  const candidateSlots = await getDoctorSlots(doctorId, dateText, mode);
+  if (!candidateSlots.length) {
+    return [];
+  }
+
+  const reservedAppointments = await PatientAppointment.find({
+    doctorId,
+    appointmentDate: dateText,
+    mode,
+    status: { $in: ["pending_payment", "booked", "confirmed"] },
+  }).select("timeSlot");
+
+  const reservedSlotValues = new Set(reservedAppointments.map((appointment) => appointment.timeSlot));
+
+  return candidateSlots.map((slot) => ({
+    ...slot,
+    disabled: reservedSlotValues.has(slot.value),
+  }));
 }
 
 async function listMyAppointments(patientId) {
@@ -77,7 +96,7 @@ async function createAppointmentBooking(patientId, payload) {
   }
 
   const slots = await listDoctorSlots(payload.doctorId, payload.appointmentDate, payload.mode);
-  const isSlotAvailable = slots.some((slot) => slot.value === payload.timeSlot);
+  const isSlotAvailable = slots.some((slot) => slot.value === payload.timeSlot && !slot.disabled);
   if (!isSlotAvailable) {
     return {
       status: 400,
@@ -89,7 +108,7 @@ async function createAppointmentBooking(patientId, payload) {
     doctorId: payload.doctorId,
     appointmentDate: payload.appointmentDate,
     timeSlot: payload.timeSlot,
-    status: { $in: ["booked", "confirmed"] },
+    status: { $in: ["pending_payment", "booked", "confirmed"] },
   });
 
   if (conflicting) {
@@ -105,11 +124,12 @@ async function createAppointmentBooking(patientId, payload) {
     doctorName: doctor.fullName,
     specialization: doctor.specialization,
     hospitalOrClinic: doctor.hospitalOrClinic,
+    fee: doctor.consultationFee || 0,
     appointmentDate: payload.appointmentDate,
     timeSlot: payload.timeSlot,
     mode: payload.mode,
     reason: payload.reason || "",
-    status: "booked",
+    status: "pending_payment",
     paymentStatus: "pending",
   });
 

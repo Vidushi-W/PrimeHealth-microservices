@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const DoctorProfile = require("../models/DoctorProfile");
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function normalizeValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -24,19 +25,48 @@ function formatSlotLabel(startTime, endTime) {
   return `${formatTimeLabel(startTime)} - ${formatTimeLabel(endTime)}`;
 }
 
+function parseTimeToMinutes(value) {
+  const [hours, minutes] = String(value || "").split(":").map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+function minutesToTime(minutes) {
+  const safeMinutes = Math.max(0, minutes);
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
 function normalizeAvailabilityItems(items = []) {
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
   return items
-    .filter((item) => item?.date && item?.startTime && item?.endTime)
-    .map((item) => ({
-      date: item.date,
-      startTime: item.startTime,
-      endTime: item.endTime,
-      mode: item.mode || "physical",
-      label: formatSlotLabel(item.startTime, item.endTime),
-    }))
+    .map((item) => {
+      let day = item?.day;
+
+      if (!day && item?.date) {
+        const parsed = new Date(`${item.date}T00:00:00`);
+        if (!Number.isNaN(parsed.getTime())) {
+          day = dayNames[parsed.getDay()];
+        }
+      }
+
+      return {
+        day,
+        startTime: item?.startTime,
+        endTime: item?.endTime,
+        mode: item?.mode || "physical",
+        label: formatSlotLabel(item?.startTime, item?.endTime),
+      };
+    })
+    .filter((item) => item.day && item.startTime && item.endTime)
     .sort((left, right) => {
-      const leftKey = `${left.date} ${left.startTime}`;
-      const rightKey = `${right.date} ${right.startTime}`;
+      const leftKey = `${left.day} ${left.startTime}`;
+      const rightKey = `${right.day} ${right.startTime}`;
       return leftKey.localeCompare(rightKey);
     });
 }
@@ -107,8 +137,7 @@ async function getDoctorById(doctorId) {
 }
 
 function buildDoctorCard(doctor) {
-  const today = new Date().toISOString().slice(0, 10);
-  const nextAvailability = doctor.availability.find((item) => item.date >= today);
+  const nextAvailability = doctor.availability.find((item) => item.label);
 
   return {
     id: doctor.id,
@@ -119,10 +148,24 @@ function buildDoctorCard(doctor) {
     profileImage: doctor.profileImage,
     rating: doctor.rating,
     supportedModes: doctor.supportedModes,
+    availability: doctor.availability,
     nextAvailableSlot: nextAvailability
-      ? `${nextAvailability.date} ${nextAvailability.label}`
+      ? `${nextAvailability.day} ${nextAvailability.label}`
       : "Slots will be updated soon",
   };
+}
+
+function getDayName(dateText) {
+  if (!dateText) {
+    return null;
+  }
+
+  const parsed = new Date(`${dateText}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return DAY_NAMES[parsed.getUTCDay()];
 }
 
 async function searchDoctors(filters = {}) {
@@ -172,12 +215,43 @@ async function getDoctorSlots(doctorId, dateText, mode) {
     return [];
   }
 
-  return doctor.availability
-    .filter((item) => item.date === dateText && (!mode || item.mode === mode))
-    .map((item) => ({
-      value: item.label,
-      label: item.label,
-    }));
+  const dayName = getDayName(dateText);
+  if (!dayName) {
+    return [];
+  }
+
+  const slots = doctor.availability
+    .filter((item) => item.day === dayName && (!mode || item.mode === mode))
+    .flatMap((item) => {
+      const startMinutes = parseTimeToMinutes(item.startTime);
+      const endMinutes = parseTimeToMinutes(item.endTime);
+
+      if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+        return [];
+      }
+
+      const generatedSlots = [];
+      for (let cursor = startMinutes; cursor + 15 <= endMinutes; cursor += 15) {
+        const slotStart = minutesToTime(cursor);
+        const slotEnd = minutesToTime(cursor + 15);
+        generatedSlots.push({
+          value: formatSlotLabel(slotStart, slotEnd),
+          label: formatSlotLabel(slotStart, slotEnd),
+          startTime: slotStart,
+          endTime: slotEnd,
+          disabled: false,
+        });
+      }
+
+      return generatedSlots;
+    });
+
+  const uniqueSlots = new Map();
+  for (const slot of slots) {
+    uniqueSlots.set(slot.value, slot);
+  }
+
+  return Array.from(uniqueSlots.values());
 }
 
 async function getDoctorBookingDetails(doctorId) {

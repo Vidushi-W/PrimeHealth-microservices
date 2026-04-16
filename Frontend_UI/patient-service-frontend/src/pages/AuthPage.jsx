@@ -33,11 +33,13 @@ const doctorRegisterInitialState = {
 };
 
 const initialAvailabilityDraft = {
-  date: '',
+  day: 'Monday',
   startTime: '',
   endTime: '',
   mode: 'physical',
 };
+
+const availabilityDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 function getRegistrationConfig(role) {
   if (role === 'doctor') {
@@ -168,6 +170,7 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
     role === 'doctor' ? doctorRegisterInitialState : patientRegisterInitialState,
   );
   const [availabilityDraft, setAvailabilityDraft] = useState(initialAvailabilityDraft);
+  const [availabilityError, setAvailabilityError] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -186,24 +189,38 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
   const handleAvailabilityDraftChange = (event) => {
     const { name, value } = event.target;
     setAvailabilityDraft((current) => ({ ...current, [name]: value }));
+    setAvailabilityError('');
   };
 
   const handleAddAvailability = () => {
-    if (!availabilityDraft.date || !availabilityDraft.startTime || !availabilityDraft.endTime) {
-      setError('Add a date, start time, and end time for doctor availability.');
+    if (!availabilityDraft.day || !availabilityDraft.startTime || !availabilityDraft.endTime) {
+      setAvailabilityError('Choose a weekday, start time, and end time before adding the slot.');
       return;
     }
 
     if (availabilityDraft.endTime <= availabilityDraft.startTime) {
-      setError('Availability end time must be later than start time.');
+      setAvailabilityError('End time must be later than start time.');
+      return;
+    }
+
+    const isDuplicate = (registerForm.availability || []).some((slot) => (
+      slot.day === availabilityDraft.day
+      && slot.startTime === availabilityDraft.startTime
+      && slot.endTime === availabilityDraft.endTime
+      && slot.mode === availabilityDraft.mode
+    ));
+
+    if (isDuplicate) {
+      setAvailabilityError('That availability slot has already been added.');
       return;
     }
 
     setRegisterForm((current) => ({
       ...current,
-      availability: [...(current.availability || []), availabilityDraft],
+      availability: [...(current.availability || []), { ...availabilityDraft }],
     }));
-    setAvailabilityDraft(initialAvailabilityDraft);
+    setAvailabilityDraft({ ...initialAvailabilityDraft });
+    setAvailabilityError('');
     setError('');
   };
 
@@ -299,14 +316,12 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
 
               <div className="availability-grid">
                 <label className="form-field">
-                  <span>Date</span>
-                  <input
-                    min={new Date().toISOString().slice(0, 10)}
-                    name="date"
-                    onChange={handleAvailabilityDraftChange}
-                    type="date"
-                    value={availabilityDraft.date}
-                  />
+                  <span>Day</span>
+                  <select name="day" onChange={handleAvailabilityDraftChange} value={availabilityDraft.day}>
+                    {availabilityDays.map((day) => (
+                      <option key={day} value={day}>{day}</option>
+                    ))}
+                  </select>
                 </label>
 
                 <label className="form-field">
@@ -342,10 +357,12 @@ function RegistrationPage({ role, onAuthSuccess, getDefaultRoute }) {
                 Add slot
               </button>
 
+              {availabilityError ? <p className="form-message error compact-message">{availabilityError}</p> : null}
+
               <div className="availability-list">
                 {(registerForm.availability || []).length ? registerForm.availability.map((slot, index) => (
-                  <div className="availability-chip" key={`${slot.date}-${slot.startTime}-${slot.endTime}-${index}`}>
-                    <span>{slot.date} | {slot.startTime} - {slot.endTime} | {slot.mode}</span>
+                  <div className="availability-chip" key={`${slot.day}-${slot.startTime}-${slot.endTime}-${index}`}>
+                    <span>{slot.day} | {slot.startTime} - {slot.endTime} | {slot.mode}</span>
                     <button onClick={() => handleRemoveAvailability(index)} type="button">Remove</button>
                   </div>
                 )) : (

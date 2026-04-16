@@ -28,6 +28,11 @@ const patientAppointmentSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    fee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     appointmentDate: {
       type: String,
       required: true,
@@ -50,7 +55,7 @@ const patientAppointmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "booked",
+      default: "pending_payment",
       trim: true,
     },
     paymentStatus: {

@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/AuthPage';
@@ -74,9 +74,12 @@ function AppShell() {
         <div className="navbar-links">
           {auth?.token ? (
             <>
-              <Link to={getDefaultRoute(auth.user?.role)} className="nav-link">Dashboard</Link>
-              {auth.user?.role === 'patient' ? <Link to="/patient/profile" className="nav-link">My Profile</Link> : null}
-              <span className="nav-user">{auth.user?.fullName || auth.user?.email}</span>
+              <NavLink to={getDefaultRoute(auth.user?.role)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Dashboard</NavLink>
+              {auth.user?.role === 'patient' ? <NavLink to="/patient/profile" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>My Profile</NavLink> : null}
+              <span className="nav-user">
+                <span className="nav-user-label">Signed in as</span>
+                <strong>{auth.user?.fullName || auth.user?.email}</strong>
+              </span>
               <button className="btn btn-secondary" onClick={handleLogout} type="button">
                 Logout
               </button>

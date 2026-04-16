@@ -29,14 +29,29 @@ function normalizeDoctorAvailability(value) {
     return [];
   }
 
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
   return value
-    .map((item) => ({
-      date: item?.date?.toString().trim(),
-      startTime: item?.startTime?.toString().trim(),
-      endTime: item?.endTime?.toString().trim(),
-      mode: item?.mode?.toString().trim() || "physical",
-    }))
-    .filter((item) => item.date && item.startTime && item.endTime);
+    .map((item) => {
+      const rawDay = item?.day?.toString().trim();
+      const rawDate = item?.date?.toString().trim();
+      let day = rawDay || "";
+
+      if (!day && rawDate) {
+        const parsed = new Date(`${rawDate}T00:00:00`);
+        if (!Number.isNaN(parsed.getTime())) {
+          day = dayNames[parsed.getDay()];
+        }
+      }
+
+      return {
+        day,
+        startTime: item?.startTime?.toString().trim(),
+        endTime: item?.endTime?.toString().trim(),
+        mode: item?.mode?.toString().trim() || "physical",
+      };
+    })
+    .filter((item) => item.day && item.startTime && item.endTime);
 }
 
 function buildUserSummary(user) {
