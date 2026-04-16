@@ -44,10 +44,22 @@ async function registerDoctor(payload) {
 }
 
 async function getDoctorById(id) {
-  if (!mongoose.isValidObjectId(id)) throw new ApiError(400, 'Invalid doctor id');
   const doctor = await Doctor.findById(id);
-  if (!doctor) throw new ApiError(404, 'Doctor not found');
-  return doctor;
+  
+  if (!doctor) {
+    // Try email as fallback
+    const byEmail = await Doctor.findOne({ email: id });
+    if (!byEmail) throw new ApiError(404, `Doctor not found with ID/Email: ${id}`);
+    
+    const doctorObj = byEmail.toObject();
+    doctorObj.isAvailable = true;
+    return doctorObj;
+  }
+  
+  const doctorObj = doctor.toObject();
+  doctorObj.isAvailable = true; 
+  
+  return doctorObj;
 }
 
 async function updateDoctorById(id, updates) {
