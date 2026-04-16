@@ -14,7 +14,7 @@ function DoctorCard({ doctor }) {
           <h2 className="mt-2 text-xl font-semibold text-slate-900">{doctor.name}</h2>
           <p className="mt-2 text-sm text-slate-500">{doctor.email}</p>
         </div>
-        <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+        <span className="rounded-lg bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
           {doctor.experience} yrs
         </span>
       </div>
