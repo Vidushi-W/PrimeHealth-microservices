@@ -55,6 +55,7 @@ Frontend_UI/.env.development.local
 Frontend_UI/.env.production.local
 Frontend_UI/.env.test.local
 Frontend_UI/dist/
+Frontend_UI/telemedicine_frontend(temp)/
 
 # Repo layout after reorganization
 micro-services/**/.env
