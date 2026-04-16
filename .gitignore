@@ -1,2 +1,84 @@
-﻿Frontend_UI/patient-service-frontend/.vite/
-micro-services/services/patient-service/uploads/
+.env
+.env.*
+!.env.example
+
+# Dependencies
+**/node_modules/
+
+# Logs
+*.log
+logs/
+**/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files
+pids/
+*.pid
+*.pid.lock
+
+# Build and coverage
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Caches
+.cache/
+.eslintcache
+*.tsbuildinfo
+.vite/
+.npm/
+.pnpm-store/
+.turbo/
+.history/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# Frontend workspace
+frontend/
+Frontend_UI/.env.local
+Frontend_UI/.env.development.local
+Frontend_UI/.env.production.local
+Frontend_UI/.env.test.local
+Frontend_UI/dist/
+Frontend_UI/telemedicine_frontend(temp)/.env.local
+Frontend_UI/telemedicine_frontend(temp)/.env.development.local
+Frontend_UI/telemedicine_frontend(temp)/.env.production.local
+Frontend_UI/telemedicine_frontend(temp)/.env.test.local
+Frontend_UI/telemedicine_frontend(temp)/.vite/
+
+# Repo layout after reorganization
+micro-services/**/.env
+micro-services/**/.env.local
+micro-services/**/.env.development
+micro-services/**/.env.production
+micro-services/**/.env.test
+micro-services/**/.env.*.local
+micro-services/**/uploads/
+micro-services/**/tmp/
+micro-services/**/temp/
+micro-services/**/cache/
+micro-services/**/logs/
+micro-services/**/coverage/
+micro-services/**/dist/
+micro-services/**/build/
+micro-services/**/.DS_Store
+
+# Docker local overrides
+docker-compose.override.yml
+micro-services/docker/docker-compose.override.yml
+micro-services/docker/.env

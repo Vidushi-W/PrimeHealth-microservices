@@ -3,10 +3,13 @@ version: '3.8'
 services:
   mongodb:
     image: mongo:latest
+    container_name: primehealth-mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: primehealth
     networks:
       - primehealth-net
     restart: unless-stopped
@@ -14,12 +17,16 @@ services:
   admin-analytics-service:
     build:
       context: ../services/admin-analytics-service
+    container_name: primehealth-admin-service
     ports:
       - "5001:5001"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       - PORT=5001
       - MONGO_URI=${ADMIN_MONGO_URI:-mongodb://mongodb:27017/admin_analytics}
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-primehealth_dev_secret}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
     depends_on:
       - mongodb
@@ -101,9 +108,52 @@ services:
       - primehealth-net
     restart: unless-stopped
 
+  telemedicine-service:
+    build:
+      context: ../services/telemedicine-service
+    container_name: primehealth-telemedicine-service
+    ports:
+      - "5006:5003"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      - PORT=5003
+      - NODE_ENV=production
+      - MONGO_URI=${TELEMEDICINE_MONGO_URI:-mongodb://mongodb:27017/telemedicine}
+      - JWT_SECRET=${JWT_SECRET:-primehealth_dev_secret}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-jitsi}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - RECORDING_ENABLED=${RECORDING_ENABLED:-false}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+    depends_on:
+      - mongodb
+    volumes:
+      - telemedicine_uploads:/app/uploads
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
+  telemedicine-frontend:
+    build:
+      context: ../../Frontend_UI/telemedicine_frontend(temp)
+      dockerfile: Dockerfile
+    container_name: primehealth-telemedicine-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:5006
+    depends_on:
+      - telemedicine-service
+    networks:
+      - primehealth-net
+    restart: unless-stopped
+
 networks:
   primehealth-net:
     driver: bridge
 
 volumes:
   mongodb_data:
+  telemedicine_uploads:
