@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primehealth-config
+data:
+  NODE_ENV: production
+  APPOINTMENT_PORT: "5003"
+  PAYMENT_PORT: "5004"
+  DOCTOR_SERVICE_URL: "http://doctor-service:5002"
+  APPOINTMENT_SERVICE_URL: "http://appointment-service:5003"
+  INVOICE_DIR: "./invoices"
+  MONGODB_URI_APPOINTMENT: "mongodb://mongodb:27017/appointments"
+  MONGODB_URI_PAYMENT: "mongodb://mongodb:27017/payments"
+  MONGODB_URI_DOCTOR: "mongodb://mongodb:27017/doctors"

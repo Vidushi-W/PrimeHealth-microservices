@@ -1,10 +1,25 @@
 import React from 'react';
-import { createRoot } from 'react-dom/client';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import App from './App';
-import './styles.css';
+import './index.css';
 
-createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            borderRadius: '14px',
+            background: '#ffffff',
+            color: '#0f172a',
+            boxShadow: '0 18px 40px rgba(94, 183, 136, 0.14)'
+          }
+        }}
+      />
+    </BrowserRouter>
   </React.StrictMode>
 );
