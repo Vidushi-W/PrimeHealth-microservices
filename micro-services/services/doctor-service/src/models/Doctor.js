@@ -18,6 +18,7 @@ const availabilitySchema = new mongoose.Schema(
 
 const doctorSchema = new mongoose.Schema(
   {
+    _id: { type: String, required: true },
     name: { type: String, required: true, trim: true, minlength: 2 },
     email: {
       type: String,

@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  mongodb-appointment:
+    image: mongo:latest
+    ports:
+      - "27018:27017" # Exposed to host mapping
+    volumes:
+      - mongodb_appointment_data:/data/db
+    networks:
+      - primehealth-net
+
+  mongodb-payment:
+    image: mongo:latest
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb_payment_data:/data/db
+    networks:
+      - primehealth-net
+
+  doctor-service:
+    build:
+      context: ./micro-services/services/doctor-service
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - NODE_ENV=development
+    networks:
+      - primehealth-net
+
+  appointment-service:
+    build:
+      context: ./micro-services/services/appointment-service
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - MONGODB_URI=mongodb://mongodb-appointment:27017/appointmentDB
+      - JWT_SECRET=sithmisupersecretkey2026
+      - DOCTOR_SERVICE_URL=http://doctor-service:5002
+      - NODE_ENV=development
+    depends_on:
+      - mongodb-appointment
+      - doctor-service
+    networks:
+      - primehealth-net
+
+  payment-service:
+    build:
+      context: ./micro-services/services/payment-service
+    ports:
+      - "5004:5004"
+    environment:
+      - PORT=5004
+      - MONGODB_URI=mongodb://mongodb-payment:27017/paymentDB
+      - JWT_SECRET=sithmisupersecretkey2026
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+      - NODE_ENV=development
+    depends_on:
+      - mongodb-payment
+      - appointment-service
+    networks:
+      - primehealth-net
+
+  api-gateway:
+    build:
+      context: ./micro-services/api-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - FRONTEND_URL=http://localhost:3000
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+      - PAYMENT_SERVICE_URL=http://payment-service:5004
+    depends_on:
+      - appointment-service
+      - payment-service
+    networks:
+      - primehealth-net
+
+  frontend:
+    build:
+      context: ./Frontend_UI
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - primehealth-net
+
+networks:
+  primehealth-net:
+    driver: bridge
+
+volumes:
+  mongodb_appointment_data:
+  mongodb_payment_data:
