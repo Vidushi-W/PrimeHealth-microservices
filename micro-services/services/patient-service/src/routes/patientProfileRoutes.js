@@ -6,6 +6,7 @@ const {
   getHome,
   getProfile,
   getReports,
+  getTimeline,
   uploadReport,
   updateProfile,
 } = require("../controllers/patientProfileController");
@@ -24,6 +25,7 @@ router.use(protect);
 router.use(authorizeRoles("patient"));
 
 router.get("/home", getHome);
+router.get("/timeline", getTimeline);
 router.get("/reports", getReports);
 router.post("/reports", uploadReport);
 router.post("/reports/:reportId/analyze", analyzeReport);

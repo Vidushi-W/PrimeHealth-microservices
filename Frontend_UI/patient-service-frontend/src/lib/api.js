@@ -57,6 +57,16 @@ export async function getPatientHome(token) {
   return parseResponse(response);
 }
 
+export async function getPatientTimeline(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/timeline`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
 export async function getBookableDoctors(token, filters = {}) {
   const query = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''),

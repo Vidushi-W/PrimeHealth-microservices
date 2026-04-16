@@ -2,6 +2,7 @@ const {
   analyzePatientReport,
   deletePatientReport,
   getMyPatientProfile,
+  getMyPatientTimeline,
   updateMyPatientProfile,
   getMyPatientHome,
   getPatientSummaryForDoctor,
@@ -40,6 +41,18 @@ async function getHome(req, res) {
   } catch (error) {
     return res.status(500).json({
       message: "Failed to fetch patient home data",
+      error: error.message,
+    });
+  }
+}
+
+async function getTimeline(req, res) {
+  try {
+    const result = await getMyPatientTimeline(req.user._id);
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch patient medical history",
       error: error.message,
     });
   }
@@ -112,6 +125,7 @@ module.exports = {
   getHome,
   getProfile,
   getReports,
+  getTimeline,
   uploadReport,
   updateProfile,
 };

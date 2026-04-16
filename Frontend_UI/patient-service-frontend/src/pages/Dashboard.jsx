@@ -117,6 +117,21 @@ function DetailCard({ item }) {
   );
 }
 
+function HistoryPreviewCard({ item }) {
+  return (
+    <article className="list-card" key={item.id}>
+      <div>
+        <h3>{item.title}</h3>
+        <p>{item.description}</p>
+      </div>
+      <div className="list-meta">
+        <strong>{item.displayDate}</strong>
+        <span>{item.status}</span>
+      </div>
+    </article>
+  );
+}
+
 function ReportCard({ report, onAnalyze, onDelete, isAnalyzing, isDeleting }) {
   const findingLabel = report.analyzer?.findings?.[0] || '';
   const confidencePercent = typeof report.analyzer?.confidence === 'number'
@@ -449,6 +464,20 @@ function Dashboard({ auth, onProfileSync }) {
                   report={report}
                 />
               )) : <EmptyState label="No uploaded reports yet." />}
+            </div>
+          </section>
+
+          <section className="dashboard-section">
+            <SectionHeader
+              title="Medical history"
+              description="Your latest appointments, reports, prescriptions, and consultation updates."
+              action={<Link className="btn btn-secondary small" to="/patient/history">Open timeline</Link>}
+            />
+
+            <div className="list-stack">
+              {homeData?.recentHistory?.length ? homeData.recentHistory.map((item) => (
+                <HistoryPreviewCard item={item} key={item.id} />
+              )) : <EmptyState label="No medical history yet." />}
             </div>
           </section>
 

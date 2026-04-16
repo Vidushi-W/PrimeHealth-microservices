@@ -404,6 +404,140 @@ function buildPrescriptionSummary(prescriptions) {
   }));
 }
 
+function sortTimelineItems(items = []) {
+  return items
+    .filter((item) => item?.date)
+    .sort((left, right) => new Date(right.date) - new Date(left.date));
+}
+
+function buildAction(type, item = {}) {
+  if (type === "report" && item.fileUrl) {
+    return {
+      label: "Open file",
+      href: item.fileUrl,
+      actionType: "link",
+    };
+  }
+
+  if (type === "report_analysis" && item.fileUrl) {
+    return {
+      label: "Open file",
+      href: item.fileUrl,
+      actionType: "link",
+    };
+  }
+
+  if (type === "prescription" && item.pdfUrl) {
+    return {
+      label: "View prescription",
+      href: item.pdfUrl,
+      actionType: "link",
+    };
+  }
+
+  return {
+    label: "View details",
+    href: type === "consultation" ? "/patient/history" : "/patient/dashboard",
+    actionType: "route",
+  };
+}
+
+function buildAppointmentTimelineItems(appointments = []) {
+  return appointments.flatMap((appointment) => {
+    const appointmentDate = appointment.appointmentDate
+      ? new Date(`${appointment.appointmentDate}T00:00:00Z`).toISOString()
+      : appointment.createdAt;
+
+    const bookedEvent = {
+      id: `appointment-${appointment.id}`,
+      type: "appointment",
+      title: `Appointment with ${appointment.doctorName}`,
+      description: `${appointment.specialization} at ${appointment.hospitalOrClinic || "PrimeHealth care network"}`,
+      date: appointment.createdAt || appointmentDate,
+      displayDate: formatDateLabel(appointment.createdAt || appointmentDate),
+      status: appointment.status || "booked",
+      doctorOrHospital: appointment.doctorName || appointment.hospitalOrClinic || "",
+      action: buildAction("appointment", appointment),
+    };
+
+    if (!String(appointment.status || "").toLowerCase().includes("complete")) {
+      return [bookedEvent];
+    }
+
+    return [
+      bookedEvent,
+      {
+        id: `consultation-${appointment.id}`,
+        type: "consultation",
+        title: `Consultation completed with ${appointment.doctorName}`,
+        description: `${appointment.mode === "online" ? "Online" : "In-person"} consultation${appointment.reason ? ` for ${appointment.reason}` : ""}`,
+        date: appointmentDate,
+        displayDate: formatDateLabel(appointmentDate),
+        status: "completed",
+        doctorOrHospital: appointment.doctorName || appointment.hospitalOrClinic || "",
+        action: buildAction("consultation", appointment),
+      },
+    ];
+  });
+}
+
+function buildReportTimelineItems(reports = []) {
+  return reports.flatMap((report) => {
+    const uploadedEvent = {
+      id: `report-${report.id}`,
+      type: "report",
+      title: `${report.reportType} uploaded`,
+      description: `Uploaded from ${report.hospitalOrLabName || "your healthcare provider"}`,
+      date: report.uploadedAt || report.reportDate,
+      displayDate: formatDateLabel(report.uploadedAt || report.reportDate),
+      status: report.analyzer?.status === "done" ? "analyzed" : "stored",
+      doctorOrHospital: report.doctorName || report.hospitalOrLabName || "",
+      action: buildAction("report", report),
+    };
+
+    if (report.analyzer?.status !== "done" || !report.analyzer?.analyzedAt) {
+      return [uploadedEvent];
+    }
+
+    return [
+      uploadedEvent,
+      {
+        id: `report-analysis-${report.id}`,
+        type: "report_analysis",
+        title: `${report.reportType} analyzed`,
+        description: report.analyzer.summary || "Analyzer completed and added a summary to this report.",
+        date: report.analyzer.analyzedAt,
+        displayDate: formatDateLabel(report.analyzer.analyzedAt),
+        status: "completed",
+        doctorOrHospital: report.hospitalOrLabName || "",
+        action: buildAction("report_analysis", report),
+      },
+    ];
+  });
+}
+
+function buildPrescriptionTimelineItems(prescriptions = []) {
+  return prescriptions.map((prescription) => ({
+    id: `prescription-${prescription._id}`,
+    type: "prescription",
+    title: prescription.diagnosis || "Prescription issued",
+    description: `${Array.isArray(prescription.medicines) ? prescription.medicines.length : 0} medicine${Array.isArray(prescription.medicines) && prescription.medicines.length === 1 ? "" : "s"} added to your treatment plan`,
+    date: prescription.createdAt,
+    displayDate: formatDateLabel(prescription.createdAt),
+    status: "issued",
+    doctorOrHospital: prescription.doctorId || "",
+    action: buildAction("prescription", prescription),
+  }));
+}
+
+function buildTimelineItems({ appointments = [], reports = [], prescriptions = [] }) {
+  return sortTimelineItems([
+    ...buildAppointmentTimelineItems(appointments),
+    ...buildReportTimelineItems(reports),
+    ...buildPrescriptionTimelineItems(prescriptions),
+  ]);
+}
+
 async function getMyPatientProfile(userId) {
   const user = await User.findById(userId);
   if (!user) {
@@ -459,6 +593,13 @@ async function getMyPatientHome(userId) {
     appointments = [];
   }
 
+  const uploadedReports = buildUploadedReports(profile.uploadedReports || []);
+  const timeline = buildTimelineItems({
+    appointments,
+    reports: uploadedReports,
+    prescriptions,
+  });
+
   return {
     status: 200,
     body: {
@@ -468,9 +609,58 @@ async function getMyPatientHome(userId) {
       welcomeCard: buildWelcomeCard(user, profile),
       upcomingAppointments: buildUpcomingAppointments(appointments, profile),
       recentPrescriptions: buildPrescriptionSummary(prescriptions),
-      uploadedReports: buildUploadedReports(profile.uploadedReports || []),
+      uploadedReports,
+      recentHistory: timeline.slice(0, 3),
       reminders: [...buildAppointmentReminders(appointments), ...buildHomeReminders(profile)].slice(0, 3),
       quickActions: buildQuickActions(String(userId)),
+    },
+  };
+}
+
+async function getMyPatientTimeline(userId) {
+  const user = await User.findById(userId);
+  if (!user) {
+    return {
+      status: 404,
+      body: { message: "User not found" },
+    };
+  }
+
+  const profile = await PatientProfile.findOne({ userId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  let prescriptions = [];
+  let appointments = [];
+
+  try {
+    prescriptions = await fetchPrescriptionsByPatient(String(userId));
+  } catch (_error) {
+    prescriptions = [];
+  }
+
+  try {
+    appointments = await listMyAppointments(userId);
+  } catch (_error) {
+    appointments = [];
+  }
+
+  const reports = buildUploadedReports(profile.uploadedReports || []);
+  const timeline = buildTimelineItems({
+    appointments,
+    reports,
+    prescriptions,
+  });
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      timeline,
     },
   };
 }
@@ -796,6 +986,7 @@ module.exports = {
   deletePatientReport,
   getMyPatientHome,
   getMyPatientProfile,
+  getMyPatientTimeline,
   getPatientSummaryForDoctor,
   listMyPatientReports,
   uploadPatientReport,
