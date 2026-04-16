@@ -12,20 +12,30 @@ function Layout({ children }) {
               PrimeHealth
             </p>
             <h1 className="mt-1 text-2xl font-semibold text-slate-900">
-              Doctor Service Console
+              Doctor Management Dashboard
             </h1>
           </div>
 
           <nav className="flex items-center gap-3">
             <Link
               to="/"
-              className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
                 location.pathname === '/'
                   ? 'bg-brand-500 text-white'
                   : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'
               }`}
             >
-              Doctors
+              Dashboard
+            </Link>
+            <Link
+              to="/profile"
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                location.pathname === '/profile'
+                  ? 'bg-brand-500 text-white'
+                  : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'
+              }`}
+            >
+              Profile
             </Link>
           </nav>
         </div>
