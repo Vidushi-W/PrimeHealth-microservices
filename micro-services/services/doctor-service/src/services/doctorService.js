@@ -175,6 +175,17 @@ async function registerDoctor(payload) {
   return doctor;
 }
 
+async function listDoctors(filters = {}) {
+  const query = {};
+
+  if (filters.specialization) {
+    query.specialization = new RegExp(`^${String(filters.specialization).trim()}$`, 'i');
+  }
+
+  const doctors = await Doctor.find(query).sort({ name: 1 });
+  return doctors;
+}
+
 async function getDoctorById(id) {
   if (!mongoose.isValidObjectId(id)) throw new ApiError(400, 'Invalid doctor id');
   const doctor = await Doctor.findById(id);
@@ -334,6 +345,7 @@ async function getPatientSummary(doctorId, patientId) {
 }
 
 module.exports = {
+  listDoctors,
   registerDoctor,
   getDoctorById,
   updateDoctorById,
