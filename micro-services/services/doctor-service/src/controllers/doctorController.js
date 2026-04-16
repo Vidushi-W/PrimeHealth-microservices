@@ -1,6 +1,15 @@
 const doctorService = require('../services/doctorService');
 const asyncHandler = require('../utils/asyncHandler');
 
+const listDoctors = asyncHandler(async (req, res) => {
+  const doctors = await doctorService.listDoctors(req.query);
+  res.status(200).json({
+    success: true,
+    message: 'Doctors fetched',
+    data: doctors
+  });
+});
+
 const registerDoctor = asyncHandler(async (req, res) => {
   const doctor = await doctorService.registerDoctor(req.body);
   res.status(201).json({
@@ -80,6 +89,7 @@ const getPatientSummary = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  listDoctors,
   registerDoctor,
   getDoctorById,
   updateDoctor,
