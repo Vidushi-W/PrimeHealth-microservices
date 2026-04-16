@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, param } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const doctorController = require('../controllers/doctorController');
 const { validate } = require('../utils/validate');
 
@@ -26,6 +26,13 @@ router.post(
   ],
   validate,
   doctorController.registerDoctor
+);
+
+router.get(
+  '/api/doctors',
+  [query('specialization').optional().isString().trim()],
+  validate,
+  doctorController.listDoctors
 );
 
 router.get(
