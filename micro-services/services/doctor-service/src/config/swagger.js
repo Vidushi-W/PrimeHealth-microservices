@@ -36,6 +36,17 @@ module.exports = buildSwaggerSpec;
  *         description: OK
  *
  * /api/doctors:
+ *   get:
+ *     tags: [Doctors]
+ *     summary: List doctors
+ *     parameters:
+ *       - in: query
+ *         name: specialization
+ *         required: false
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: OK
  *   post:
  *     tags: [Doctors]
  *     summary: Register doctor
