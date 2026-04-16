@@ -1,4 +1,5 @@
 const PatientAppointment = require("../models/PatientAppointment");
+const PatientProfile = require("../models/PatientProfile");
 const { getDoctorBookingDetails, getDoctorSlots, searchDoctors } = require("./doctorDirectoryService");
 
 function formatDateLabel(dateText) {
@@ -31,8 +32,54 @@ function buildAppointmentResponse(appointment) {
     reason: appointment.reason,
     status: appointment.status,
     paymentStatus: appointment.paymentStatus,
+    sharedReports: (appointment.sharedReports || []).map((report) => ({
+      reportId: report.reportId,
+      fileName: report.fileName,
+      fileUrl: report.fileUrl,
+      reportType: report.reportType,
+      reportDate: report.reportDate,
+      hospitalOrLabName: report.hospitalOrLabName,
+      doctorName: report.doctorName,
+      notes: report.notes,
+      analyzerStatus: report.analyzerStatus,
+      analyzerType: report.analyzerType,
+      summary: report.summary,
+      findings: report.findings || [],
+      confidence: report.confidence,
+      disclaimer: report.disclaimer,
+      extractedValues: report.extractedValues || {},
+      metrics: report.metrics || {},
+    })),
     createdAt: appointment.createdAt,
   };
+}
+
+function buildSharedReportsSnapshot(uploadedReports = []) {
+  return uploadedReports
+    .slice()
+    .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))
+    .map((report) => ({
+      reportId: report._id,
+      fileName: report.fileName,
+      fileUrl: report.fileUrl,
+      reportType: report.reportType,
+      reportDate: report.reportDate,
+      hospitalOrLabName: report.hospitalOrLabName,
+      doctorName: report.doctorName,
+      notes: report.notes,
+      analyzerStatus: report.analyzer?.status || "not_started",
+      analyzerType: report.analyzer?.analyzerType || "",
+      summary: report.analyzer?.summary || "",
+      findings: report.analyzer?.findings || [],
+      confidence: report.analyzer?.confidence || 0,
+      disclaimer: report.analyzer?.disclaimer || "",
+      extractedValues: report.analyzer?.extractedValues || {},
+      metrics: {
+        glucose: report.analyzer?.extractedValues?.glucose || "",
+        cholesterol: report.analyzer?.extractedValues?.cholesterol || "",
+        hemoglobin: report.analyzer?.extractedValues?.hemoglobin || "",
+      },
+    }));
 }
 
 async function listBookableDoctors(filters) {
@@ -118,8 +165,17 @@ async function createAppointmentBooking(patientId, payload) {
     };
   }
 
+  const patientProfile = await PatientProfile.findOne({ userId: patientId });
+  if (!patientProfile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
   const appointment = await PatientAppointment.create({
     patientId,
+    patientProfileId: patientProfile._id,
     doctorId: doctor.id,
     doctorName: doctor.fullName,
     specialization: doctor.specialization,
@@ -131,6 +187,7 @@ async function createAppointmentBooking(patientId, payload) {
     reason: payload.reason || "",
     status: "pending_payment",
     paymentStatus: "pending",
+    sharedReports: buildSharedReportsSnapshot(patientProfile.uploadedReports || []),
   });
 
   return {

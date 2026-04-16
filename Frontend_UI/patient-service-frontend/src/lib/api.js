@@ -93,6 +93,51 @@ export async function getMyAppointments(token) {
   return parseResponse(response);
 }
 
+export async function getPatientReports(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reports`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function uploadPatientReport(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reports`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function analyzePatientReport(token, reportId) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reports/${reportId}/analyze`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
+export async function deletePatientReport(token, reportId) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reports/${reportId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseResponse(response);
+}
+
 export async function createAppointment(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
     method: 'POST',

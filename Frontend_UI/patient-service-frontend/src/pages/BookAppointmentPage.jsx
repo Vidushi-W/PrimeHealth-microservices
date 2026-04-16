@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createAppointment, getBookableDoctors, getDoctorSlots } from '../lib/api';
+import { createAppointment, getBookableDoctors, getDoctorSlots, getPatientReports } from '../lib/api';
 import './Dashboard.css';
 
 const initialFilters = {
@@ -150,6 +150,7 @@ function BookAppointmentPage({ auth }) {
   const [isDoctorsLoading, setIsDoctorsLoading] = useState(true);
   const [isSlotsLoading, setIsSlotsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [patientReports, setPatientReports] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [reservedAppointment, setReservedAppointment] = useState(null);
@@ -190,6 +191,29 @@ function BookAppointmentPage({ auth }) {
       active = false;
     };
   }, [auth.token, filters]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadReports() {
+      try {
+        const response = await getPatientReports(auth.token);
+        if (active) {
+          setPatientReports(response.reports || []);
+        }
+      } catch (_requestError) {
+        if (active) {
+          setPatientReports([]);
+        }
+      }
+    }
+
+    loadReports();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.token]);
 
   useEffect(() => {
     let active = true;
@@ -483,6 +507,32 @@ function BookAppointmentPage({ auth }) {
               />
             </label>
 
+            <div className="booking-schedule-note">
+              <span>Reports shared with doctor</span>
+              <strong>
+                {patientReports.length
+                  ? `${patientReports.length} uploaded report${patientReports.length === 1 ? '' : 's'} will be available to the doctor`
+                  : 'No uploaded reports yet. You can still continue with booking.'}
+              </strong>
+            </div>
+
+            {patientReports.length ? (
+              <div className="list-stack">
+                {patientReports.slice(0, 3).map((report) => (
+                  <article className="list-card" key={report.id}>
+                    <div>
+                      <h3>{report.name}</h3>
+                      <p>{report.reportType} · {report.hospitalOrLabName}</p>
+                    </div>
+                    <div className="list-meta">
+                      <strong>{report.reportDateLabel}</strong>
+                      <span>{report.analyzer?.summaryLabel || 'Stored for doctor review'}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+
             <button className="btn btn-secondary booking-pay-button" type="button">
               Pay now
             </button>
@@ -548,6 +598,11 @@ function BookAppointmentPage({ auth }) {
               <h3>Appointment ID</h3>
               <p className="card-value">{reservedAppointment.appointmentId}</p>
             </div>
+          </div>
+
+          <div className="dashboard-card glass">
+            <h3>Reports shared</h3>
+            <p className="card-value">{reservedAppointment.sharedReports?.length || 0}</p>
           </div>
 
           <div className="booking-actions">

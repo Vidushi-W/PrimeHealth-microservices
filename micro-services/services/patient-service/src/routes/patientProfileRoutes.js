@@ -1,8 +1,12 @@
 const express = require("express");
 
 const {
+  analyzeReport,
+  deleteReport,
   getHome,
   getProfile,
+  getReports,
+  uploadReport,
   updateProfile,
 } = require("../controllers/patientProfileController");
 const {
@@ -19,6 +23,10 @@ router.use(protect);
 router.use(authorizeRoles("patient"));
 
 router.get("/home", getHome);
+router.get("/reports", getReports);
+router.post("/reports", uploadReport);
+router.post("/reports/:reportId/analyze", analyzeReport);
+router.delete("/reports/:reportId", deleteReport);
 router.get("/doctors", getDoctors);
 router.get("/doctors/:doctorId/slots", getDoctorSlots);
 router.get("/appointments", getAppointments);

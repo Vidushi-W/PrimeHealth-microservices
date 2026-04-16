@@ -2,6 +2,16 @@ const User = require("../models/User");
 const PatientProfile = require("../models/PatientProfile");
 const { fetchPrescriptionsByPatient } = require("./prescriptionServiceClient");
 const { listMyAppointments } = require("./appointmentBookingService");
+const { analyzeImageScan, analyzeTextReport, DEFAULT_DISCLAIMER } = require("./modelReportAnalyzer");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+
+const REPORT_STORAGE_DIR = path.join(__dirname, "..", "..", "uploads", "reports");
+
+function ensureReportStorageDir() {
+  fs.mkdirSync(REPORT_STORAGE_DIR, { recursive: true });
+}
 
 function buildUserSummary(user) {
   return {
@@ -30,6 +40,7 @@ function buildProfileResponse(user, profile) {
       emergencyContactName: profile.emergencyContactName,
       emergencyContactPhone: profile.emergencyContactPhone,
       profilePhoto: profile.profilePhoto,
+      uploadedReports: buildUploadedReports(profile.uploadedReports || []),
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     },
@@ -58,6 +69,189 @@ function formatDateLabel(value) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function formatBytes(bytes) {
+  if (!bytes) {
+    return "0 B";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildAnalyzerSummary(analyzer = {}) {
+  const findings = Array.isArray(analyzer.findings) ? analyzer.findings.filter(Boolean) : [];
+  const extractedValues = analyzer.extractedValues && typeof analyzer.extractedValues === "object"
+    ? analyzer.extractedValues
+    : {};
+  const summaryLabel = analyzer.summary || findings[0] || "Analyzer not run yet";
+
+  return {
+    status: analyzer.status || "not_started",
+    analyzerType: analyzer.analyzerType || "",
+    summary: analyzer.summary || "",
+    extractedText: analyzer.extractedText || "",
+    findings,
+    confidence: typeof analyzer.confidence === "number" ? analyzer.confidence : 0,
+    disclaimer: analyzer.disclaimer || DEFAULT_DISCLAIMER,
+    errorMessage: analyzer.errorMessage || "",
+    extractedValues,
+    metrics: {
+      glucose: extractedValues.glucose || "",
+      cholesterol: extractedValues.cholesterol || "",
+      hemoglobin: extractedValues.hemoglobin || "",
+    },
+    summaryLabel,
+    analyzedAt: analyzer.analyzedAt || null,
+  };
+}
+
+function buildUploadedReports(reports = []) {
+  return reports
+    .slice()
+    .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))
+    .map((report) => ({
+      id: report._id,
+      patientProfileId: report.patientProfileId,
+      name: report.fileName,
+      fileName: report.fileName,
+      fileUrl: report.fileUrl,
+      filePath: report.filePath,
+      mimeType: report.mimeType,
+      reportType: report.reportType,
+      type: report.reportType,
+      reportDate: report.reportDate,
+      reportDateLabel: formatDateLabel(report.reportDate),
+      uploadedAt: report.createdAt,
+      uploadedAtLabel: formatDateLabel(report.createdAt),
+      status: report.analyzer?.status === "done" ? "Analyzed" : "Uploaded",
+      hospitalOrLabName: report.hospitalOrLabName,
+      doctorName: report.doctorName,
+      notes: report.notes,
+      fileSizeBytes: report.fileSizeBytes || 0,
+      fileSizeLabel: formatBytes(report.fileSizeBytes || 0),
+      analyzer: buildAnalyzerSummary(report.analyzer),
+    }));
+}
+
+function sanitizeFileName(fileName) {
+  return String(fileName || "report")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function decodeBase64File(fileContentBase64) {
+  if (!fileContentBase64) {
+    return Buffer.from("");
+  }
+
+  const normalized = String(fileContentBase64).replace(/^data:[^;]+;base64,/, "");
+  return Buffer.from(normalized, "base64");
+}
+
+function getFileExtension(fileName) {
+  return path.extname(String(fileName || "")).toLowerCase();
+}
+
+function isTextLikeReport(report = {}) {
+  const mimeType = String(report.mimeType || "").toLowerCase();
+  const extension = getFileExtension(report.fileName);
+
+  return mimeType.startsWith("text/")
+    || mimeType.includes("pdf")
+    || mimeType.includes("json")
+    || [".txt", ".pdf", ".csv", ".json", ".md"].includes(extension);
+}
+
+function isImageLikeReport(report = {}) {
+  return String(report.mimeType || "").toLowerCase().startsWith("image/");
+}
+
+function isXrayLikeImage(report = {}) {
+  const searchable = [
+    report.fileName,
+    report.reportType,
+    report.notes,
+    report.doctorName,
+  ].join(" ").toLowerCase();
+
+  return isImageLikeReport(report)
+    && /(x-?ray|xray|radiograph|radiology|fracture|chest scan|scan image|scan)/i.test(searchable);
+}
+
+function extractPrintablePdfText(fileBuffer) {
+  const rawText = fileBuffer.toString("latin1");
+  const printableChunks = rawText.match(/[A-Za-z0-9/%().,:;+\-\s]{4,}/g) || [];
+  return printableChunks
+    .map((chunk) => chunk.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractTextForAnalysis(report, fileBuffer) {
+  const fragments = [String(report.notes || "").trim()];
+  const mimeType = String(report.mimeType || "").toLowerCase();
+
+  if (mimeType && mimeType.startsWith("text/")) {
+    fragments.push(fileBuffer.toString("utf8"));
+  }
+
+  if (mimeType.includes("pdf") || getFileExtension(report.fileName) === ".pdf") {
+    fragments.push(extractPrintablePdfText(fileBuffer));
+  }
+
+  return fragments.filter(Boolean).join("\n");
+}
+
+function matchMetric(sourceText, patterns) {
+  for (const pattern of patterns) {
+    const match = pattern.exec(sourceText);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  return "";
+}
+
+function buildNotRunAnalyzer() {
+  return {
+    status: "not_started",
+    analyzerType: "",
+    summary: "",
+    extractedText: "",
+    findings: [],
+    confidence: 0,
+    disclaimer: DEFAULT_DISCLAIMER,
+    errorMessage: "",
+    extractedValues: {},
+    analyzedAt: null,
+  };
+}
+
+function buildDoctorSummaryResponse(user, profile) {
+  return {
+    patient: {
+      id: user._id,
+      name: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      gender: profile.gender || "",
+      bloodGroup: profile.bloodGroup || "",
+      dateOfBirth: profile.dateOfBirth,
+      emergencyContactName: profile.emergencyContactName || "",
+      emergencyContactPhone: profile.emergencyContactPhone || "",
+    },
+    reports: buildUploadedReports(profile.uploadedReports || []),
+  };
 }
 
 function buildHomeReminders(profile) {
@@ -186,18 +380,6 @@ function buildUpcomingAppointments(appointments, profile) {
   }));
 }
 
-function buildUploadedReports() {
-  return [
-    {
-      id: "report-placeholder-1",
-      name: "No uploaded reports yet",
-      type: "Medical reports",
-      uploadedAtLabel: "Upload history will appear here",
-      status: "empty",
-    },
-  ];
-}
-
 function buildPrescriptionSummary(prescriptions) {
   if (!prescriptions.length) {
     return [
@@ -286,9 +468,245 @@ async function getMyPatientHome(userId) {
       welcomeCard: buildWelcomeCard(user, profile),
       upcomingAppointments: buildUpcomingAppointments(appointments, profile),
       recentPrescriptions: buildPrescriptionSummary(prescriptions),
-      uploadedReports: buildUploadedReports(),
+      uploadedReports: buildUploadedReports(profile.uploadedReports || []),
       reminders: [...buildAppointmentReminders(appointments), ...buildHomeReminders(profile)].slice(0, 3),
       quickActions: buildQuickActions(String(userId)),
+    },
+  };
+}
+
+async function uploadPatientReport(userId, payload) {
+  const user = await User.findById(userId);
+  if (!user) {
+    return {
+      status: 404,
+      body: { message: "User not found" },
+    };
+  }
+
+  const profile = await PatientProfile.findOne({ userId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  const requiredFields = ["fileName", "fileContentBase64", "mimeType", "reportType", "reportDate", "hospitalOrLabName"];
+  const missing = requiredFields.filter((field) => !String(payload[field] || "").trim());
+  if (missing.length) {
+    return {
+      status: 400,
+      body: { message: `Missing required fields: ${missing.join(", ")}` },
+    };
+  }
+
+  ensureReportStorageDir();
+
+  const fileBuffer = decodeBase64File(payload.fileContentBase64);
+  if (!fileBuffer.length) {
+    return {
+      status: 400,
+      body: { message: "Uploaded file content is empty" },
+    };
+  }
+
+  const safeName = sanitizeFileName(payload.fileName);
+  const extension = path.extname(safeName);
+  const storedName = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${extension}`;
+  const absoluteFilePath = path.join(REPORT_STORAGE_DIR, storedName);
+  fs.writeFileSync(absoluteFilePath, fileBuffer);
+
+  const relativePath = path.posix.join("uploads", "reports", storedName);
+  profile.uploadedReports.push({
+    patientProfileId: profile._id,
+    fileName: safeName,
+    fileUrl: `/${relativePath}`,
+    filePath: relativePath,
+    mimeType: payload.mimeType,
+    fileSizeBytes: fileBuffer.length,
+    reportType: payload.reportType,
+    reportDate: payload.reportDate,
+    hospitalOrLabName: payload.hospitalOrLabName,
+    doctorName: payload.doctorName || "",
+    notes: payload.notes || "",
+    analyzer: buildNotRunAnalyzer(),
+  });
+
+  await profile.save();
+
+  const uploadedReport = buildUploadedReports(profile.uploadedReports || [])[0];
+
+  return {
+    status: 201,
+    body: {
+      message: "Patient report uploaded successfully",
+      report: uploadedReport,
+    },
+  };
+}
+
+async function listMyPatientReports(userId) {
+  const profile = await PatientProfile.findOne({ userId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      message: "Patient reports fetched successfully",
+      reports: buildUploadedReports(profile.uploadedReports || []),
+    },
+  };
+}
+
+async function analyzePatientReport(userId, reportId) {
+  const profile = await PatientProfile.findOne({ userId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  const report = profile.uploadedReports.id(reportId);
+  if (!report) {
+    return {
+      status: 404,
+      body: { message: "Report not found" },
+    };
+  }
+
+  const absoluteFilePath = path.join(__dirname, "..", "..", report.filePath);
+  if (!fs.existsSync(absoluteFilePath)) {
+    return {
+      status: 404,
+      body: { message: "Saved report file could not be found" },
+    };
+  }
+
+  report.analyzer = {
+    ...buildNotRunAnalyzer(),
+    status: "processing",
+  };
+  await profile.save();
+
+  try {
+    const analysis = isTextLikeReport(report)
+      ? await analyzeTextReport({
+        filePath: absoluteFilePath,
+        fileName: report.fileName,
+        reportType: report.reportType,
+        notes: report.notes,
+      })
+      : await analyzeImageScan({
+        filePath: absoluteFilePath,
+        fileName: report.fileName,
+        reportType: report.reportType,
+        notes: report.notes,
+      });
+
+    report.analyzer = {
+      ...buildNotRunAnalyzer(),
+      ...analysis,
+    };
+
+    await profile.save();
+
+    const refreshed = buildUploadedReports(profile.uploadedReports || []).find((item) => String(item.id) === String(reportId));
+
+    return {
+      status: 200,
+      body: {
+        message: "Report analyzer completed",
+        report: refreshed,
+      },
+    };
+  } catch (error) {
+    report.analyzer = {
+      ...buildNotRunAnalyzer(),
+      status: "failed",
+      analyzerType: isTextLikeReport(report) ? "text_report" : "image_scan",
+      summary: "Analysis failed before a result could be generated.",
+      findings: ["Analysis could not be completed"],
+      confidence: 0,
+      disclaimer: DEFAULT_DISCLAIMER,
+      errorMessage: error.message,
+      analyzedAt: new Date(),
+    };
+
+    await profile.save();
+
+    return {
+      status: 500,
+      body: {
+        message: "Report analysis failed",
+        error: error.message,
+      },
+    };
+  }
+}
+
+async function deletePatientReport(userId, reportId) {
+  const profile = await PatientProfile.findOne({ userId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  const report = profile.uploadedReports.id(reportId);
+  if (!report) {
+    return {
+      status: 404,
+      body: { message: "Report not found" },
+    };
+  }
+
+  const absoluteFilePath = path.join(__dirname, "..", "..", report.filePath);
+  if (fs.existsSync(absoluteFilePath)) {
+    fs.unlinkSync(absoluteFilePath);
+  }
+
+  report.deleteOne();
+  await profile.save();
+
+  return {
+    status: 200,
+    body: {
+      message: "Patient report deleted successfully",
+      reports: buildUploadedReports(profile.uploadedReports || []),
+    },
+  };
+}
+
+async function getPatientSummaryForDoctor(patientId) {
+  const user = await User.findById(patientId);
+  if (!user) {
+    return {
+      status: 404,
+      body: { message: "User not found" },
+    };
+  }
+
+  const profile = await PatientProfile.findOne({ userId: patientId });
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      message: "Patient summary fetched successfully",
+      ...buildDoctorSummaryResponse(user, profile),
     },
   };
 }
@@ -374,7 +792,12 @@ async function updateMyPatientProfile(userId, payload) {
 }
 
 module.exports = {
+  analyzePatientReport,
+  deletePatientReport,
   getMyPatientHome,
   getMyPatientProfile,
+  getPatientSummaryForDoctor,
+  listMyPatientReports,
+  uploadPatientReport,
   updateMyPatientProfile,
 };

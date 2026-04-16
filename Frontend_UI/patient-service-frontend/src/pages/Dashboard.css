@@ -202,6 +202,12 @@
   transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
 }
 
+.upload-records-card {
+  background:
+    radial-gradient(circle at top right, rgba(82, 183, 136, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 251, 249, 0.99));
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -360,6 +366,39 @@
 
 .empty-state-copy,
 .list-empty {
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.report-card .list-meta a {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.btn-delete {
+  border-color: rgba(180, 35, 24, 0.2);
+  color: #a63d33;
+}
+
+.btn-delete:hover {
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.report-summary {
+  color: var(--color-text-muted);
+}
+
+.report-disclaimer {
+  font-size: 0.84rem;
+}
+
+.report-error {
+  color: #a63d33;
+}
+
+.upload-records-note {
+  align-self: center;
   color: var(--color-text-muted);
   font-size: 0.92rem;
 }
