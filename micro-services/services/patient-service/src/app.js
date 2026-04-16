@@ -6,6 +6,7 @@ const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const internalPatientRoutes = require("./routes/internalPatientRoutes");
 const patientProfileRoutes = require("./routes/patientProfileRoutes");
+const { isBrevoConfigured, processDueReminderEmails } = require("./services/brevoEmailService");
 
 dotenv.config();
 connectDB();
@@ -31,7 +32,23 @@ app.use("/api/internal", internalPatientRoutes);
 app.use("/api/patients", patientProfileRoutes);
 
 const PORT = process.env.PORT || 5001;
+const reminderWorkerIntervalMs = Number(process.env.REMINDER_EMAIL_CHECK_INTERVAL_MS || 60000);
 
 app.listen(PORT, () => {
   console.log(`Patient service running on port ${PORT}`);
+
+  if (isBrevoConfigured()) {
+    console.log(`Reminder email worker enabled with interval ${reminderWorkerIntervalMs}ms`);
+    processDueReminderEmails().catch((error) => {
+      console.error("Initial reminder email worker run failed", error.message);
+    });
+
+    setInterval(() => {
+      processDueReminderEmails().catch((error) => {
+        console.error("Reminder email worker run failed", error.message);
+      });
+    }, reminderWorkerIntervalMs);
+  } else {
+    console.log("Reminder email worker disabled. Set BREVO_API_KEY and BREVO_SENDER_EMAIL to enable email reminders.");
+  }
 });

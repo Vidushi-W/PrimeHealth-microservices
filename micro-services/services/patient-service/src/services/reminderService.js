@@ -67,6 +67,10 @@ async function syncMissedStatuses(patientId) {
       status: "upcoming",
       dateTime: { $lt: new Date() },
       repeat: "once",
+      $or: [
+        { "notification.emailEnabled": false },
+        { "notification.lastEmailSentAt": { $ne: null } },
+      ],
     },
     { $set: { status: "missed" } }
   );

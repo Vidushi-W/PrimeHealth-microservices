@@ -71,6 +71,21 @@ const reminderSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    notification: {
+      emailEnabled: {
+        type: Boolean,
+        default: true,
+      },
+      lastEmailSentAt: {
+        type: Date,
+        default: null,
+      },
+      lastEmailError: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+    },
   },
   {
     timestamps: true,
