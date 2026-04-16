@@ -99,7 +99,7 @@ module.exports = buildSwaggerSpec;
  *         description: OK
  *   post:
  *     tags: [Doctors]
- *     summary: Add availability slots
+ *     summary: Add availability slots or generate them from a time range
  *     parameters:
  *       - in: path
  *         name: id
@@ -111,9 +111,12 @@ module.exports = buildSwaggerSpec;
  *         application/json:
  *           schema:
  *             type: object
- *             required: [day, slots]
+ *             required: [day, slotDuration]
  *             properties:
  *               day: { type: string }
+ *               slotDuration: { type: integer, example: 30 }
+ *               rangeStart: { type: string, example: "09:00" }
+ *               rangeEnd: { type: string, example: "12:00" }
  *               slots:
  *                 type: array
  *                 items:
@@ -121,7 +124,33 @@ module.exports = buildSwaggerSpec;
  *                   required: [start, end]
  *                   properties:
  *                     start: { type: string, example: "09:00" }
- *                     end: { type: string, example: "10:00" }
+ *                     end: { type: string, example: "09:30" }
+ *                     status: { type: string, enum: [available, booked] }
+ *     responses:
+ *       200:
+ *         description: OK
+ *
+ * /api/doctors/{id}/availability/slot-status:
+ *   patch:
+ *     tags: [Doctors]
+ *     summary: Update a slot to available or booked
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [day, start, end, status]
+ *             properties:
+ *               day: { type: string, example: "Monday" }
+ *               start: { type: string, example: "09:00" }
+ *               end: { type: string, example: "09:30" }
+ *               status: { type: string, enum: [available, booked] }
  *     responses:
  *       200:
  *         description: OK
@@ -142,7 +171,7 @@ module.exports = buildSwaggerSpec;
  * /api/doctors/{doctorId}/patient-summary/{patientId}:
  *   get:
  *     tags: [Doctors]
- *     summary: Get patient summary for a doctor (mock info + prescriptions)
+ *     summary: Get patient prescription insights for a doctor
  *     parameters:
  *       - in: path
  *         name: doctorId
