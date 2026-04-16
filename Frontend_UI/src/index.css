@@ -1,34 +1,31 @@
-@import "tailwindcss";
-
-@theme {
-  --color-primary: #3b82f6; 
-  --color-primary-dark: #2563eb;
-  --color-secondary: #0ea5e9;
-  --color-accent: #f59e0b;
-  --color-bg-light: #f8fafc;
-  --color-bg-dark: #0f172a;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background-color: var(--color-bg-light);
-    color: #1e293b;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    @apply min-h-screen bg-slate-50 text-slate-800 antialiased;
+  }
+
+  #root {
+    @apply min-h-screen;
   }
 }
 
-.glass-panel {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
+@layer components {
+  .panel {
+    @apply rounded-lg border border-brand-100/70 bg-white shadow-soft;
+  }
 
-.gradient-text {
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  background-image: linear-gradient(to right, var(--color-primary), var(--color-secondary));
+  .input {
+    @apply w-full rounded-lg border border-brand-100 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-100;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60;
+  }
 }
