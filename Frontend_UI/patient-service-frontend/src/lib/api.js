@@ -1,4 +1,33 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+const ACTIVE_PROFILE_STORAGE_KEY = 'primeHealthActiveProfileId';
+
+export function getActiveProfileId() {
+  return localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || '';
+}
+
+export function setActiveProfileId(profileId) {
+  if (!profileId) {
+    localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+    return;
+  }
+
+  localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, profileId);
+}
+
+function buildAuthHeaders(token, includeProfile = true) {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  if (includeProfile) {
+    const activeProfileId = getActiveProfileId();
+    if (activeProfileId) {
+      headers['x-profile-id'] = activeProfileId;
+    }
+  }
+
+  return headers;
+}
 
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}));
@@ -39,9 +68,7 @@ export const loginPatient = loginUser;
 
 export async function getMyProfile(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/me`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token, false),
   });
 
   return parseResponse(response);
@@ -49,9 +76,7 @@ export async function getMyProfile(token) {
 
 export async function getPatientHome(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/home`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -59,9 +84,7 @@ export async function getPatientHome(token) {
 
 export async function getPatientTimeline(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/timeline`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -72,9 +95,7 @@ export async function getBookableDoctors(token, filters = {}) {
     Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
   );
   const response = await fetch(`${API_BASE_URL}/api/patients/doctors?${query.toString()}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -85,9 +106,7 @@ export async function getDoctorSlots(token, doctorId, filters = {}) {
     Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
   );
   const response = await fetch(`${API_BASE_URL}/api/patients/doctors/${doctorId}/slots?${query.toString()}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -95,9 +114,7 @@ export async function getDoctorSlots(token, doctorId, filters = {}) {
 
 export async function getMyAppointments(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/appointments`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -105,9 +122,7 @@ export async function getMyAppointments(token) {
 
 export async function getPatientReports(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reports`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -118,7 +133,7 @@ export async function uploadPatientReport(token, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -130,7 +145,7 @@ export async function analyzePatientReport(token, reportId) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reports/${reportId}/analyze`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
   });
 
@@ -141,7 +156,7 @@ export async function deletePatientReport(token, reportId) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reports/${reportId}`, {
     method: 'DELETE',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
   });
 
@@ -153,7 +168,7 @@ export async function checkSymptoms(token, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -166,7 +181,7 @@ export async function calculateRiskScore(token, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -176,9 +191,7 @@ export async function calculateRiskScore(token, payload) {
 
 export async function getRiskScoreHistory(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/risk-score/history`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -186,9 +199,7 @@ export async function getRiskScoreHistory(token) {
 
 export async function getReminders(token) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reminders`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   return parseResponse(response);
@@ -199,7 +210,7 @@ export async function createReminder(token, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -212,7 +223,7 @@ export async function updateReminder(token, reminderId, payload) {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -224,7 +235,7 @@ export async function markReminderDone(token, reminderId) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reminders/${reminderId}/mark-done`, {
     method: 'PATCH',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
   });
 
@@ -235,7 +246,7 @@ export async function deleteReminder(token, reminderId) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reminders/${reminderId}`, {
     method: 'DELETE',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
   });
 
@@ -247,7 +258,7 @@ export async function createAppointment(token, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(payload),
   });
@@ -260,9 +271,52 @@ export async function updateMyProfile(token, payload) {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token, false),
     },
     body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function getFamilyProfiles(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/profiles`, {
+    headers: buildAuthHeaders(token, false),
+  });
+
+  return parseResponse(response);
+}
+
+export async function createFamilyProfile(token, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/profiles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildAuthHeaders(token, false),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function updateFamilyProfile(token, profileId, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/profiles/${profileId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildAuthHeaders(token, false),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function deleteFamilyProfile(token, profileId) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/profiles/${profileId}`, {
+    method: 'DELETE',
+    headers: buildAuthHeaders(token, false),
   });
 
   return parseResponse(response);

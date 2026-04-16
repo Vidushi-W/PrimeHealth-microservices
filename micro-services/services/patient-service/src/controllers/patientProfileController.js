@@ -12,7 +12,7 @@ const {
 
 async function getProfile(req, res) {
   try {
-    const result = await getMyPatientProfile(req.user._id);
+    const result = await getMyPatientProfile(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -36,7 +36,7 @@ async function updateProfile(req, res) {
 
 async function getHome(req, res) {
   try {
-    const result = await getMyPatientHome(req.user._id);
+    const result = await getMyPatientHome(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -48,7 +48,7 @@ async function getHome(req, res) {
 
 async function getTimeline(req, res) {
   try {
-    const result = await getMyPatientTimeline(req.user._id);
+    const result = await getMyPatientTimeline(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -60,7 +60,7 @@ async function getTimeline(req, res) {
 
 async function getReports(req, res) {
   try {
-    const result = await listMyPatientReports(req.user._id);
+    const result = await listMyPatientReports(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -72,7 +72,7 @@ async function getReports(req, res) {
 
 async function uploadReport(req, res) {
   try {
-    const result = await uploadPatientReport(req.user._id, req.body);
+    const result = await uploadPatientReport(req.user._id, req.body, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -84,7 +84,7 @@ async function uploadReport(req, res) {
 
 async function analyzeReport(req, res) {
   try {
-    const result = await analyzePatientReport(req.user._id, req.params.reportId);
+    const result = await analyzePatientReport(req.user._id, req.params.reportId, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -108,7 +108,7 @@ async function getDoctorPatientSummary(req, res) {
 
 async function deleteReport(req, res) {
   try {
-    const result = await deletePatientReport(req.user._id, req.params.reportId);
+    const result = await deletePatientReport(req.user._id, req.params.reportId, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({

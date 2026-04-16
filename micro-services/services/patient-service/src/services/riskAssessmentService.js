@@ -1,4 +1,5 @@
 const RiskAssessment = require("../models/RiskAssessment");
+const { getAccessibleProfile } = require("./familyProfileService");
 
 const DEFAULT_DISCLAIMER = "This is a simple risk estimation and not a medical diagnosis.";
 
@@ -349,14 +350,23 @@ function buildHistoryItem(item) {
   };
 }
 
-async function calculateRiskAssessment(patientId, payload) {
+async function calculateRiskAssessment(patientId, payload, profileId) {
   const evaluated = evaluateRisk(payload);
   if (evaluated.status !== 200) {
     return evaluated;
   }
 
+  const profile = await getAccessibleProfile(patientId, profileId);
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
   const saved = await RiskAssessment.create({
     patientId,
+    profileId: profile._id,
     ...evaluated.body.normalizedInput,
     score: evaluated.body.result.score,
     riskLevel: evaluated.body.result.riskLevel,
@@ -379,8 +389,13 @@ async function calculateRiskAssessment(patientId, payload) {
   };
 }
 
-async function listRiskAssessmentHistory(patientId) {
-  const assessments = await RiskAssessment.find({ patientId }).sort({ createdAt: -1 });
+async function listRiskAssessmentHistory(patientId, profileId) {
+  const query = { patientId };
+  if (profileId) {
+    query.profileId = profileId;
+  }
+
+  const assessments = await RiskAssessment.find(query).sort({ createdAt: -1 });
 
   return {
     status: 200,

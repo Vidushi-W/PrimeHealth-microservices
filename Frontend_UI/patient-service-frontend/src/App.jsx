@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import { LoginPage, RegistrationChoicePage, RegistrationPage } from './pages/AuthPage';
 import BookAppointmentPage from './pages/BookAppointmentPage';
+import FamilyProfilesPage from './pages/FamilyProfilesPage';
 import MedicalHistoryPage from './pages/MedicalHistoryPage';
 import ProfilePage from './pages/ProfilePage';
 import RemindersPage from './pages/RemindersPage';
@@ -78,6 +79,7 @@ function AppShell() {
           {auth?.token ? (
             <>
               <NavLink to={getDefaultRoute(auth.user?.role)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Dashboard</NavLink>
+              {auth.user?.role === 'patient' ? <NavLink to="/patient/family-profiles" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Family Profiles</NavLink> : null}
               {auth.user?.role === 'patient' ? <NavLink to="/patient/profile" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>My Profile</NavLink> : null}
               {auth.user?.role === 'patient' ? <NavLink to="/patient/history" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Medical History</NavLink> : null}
               {auth.user?.role === 'patient' ? <NavLink to="/patient/reminders" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Reminders</NavLink> : null}
@@ -110,6 +112,14 @@ function AppShell() {
             element={(
               <ProtectedRoute auth={auth} allowedRoles={['patient']}>
                 <Dashboard auth={auth} onProfileSync={handleProfileSync} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/patient/family-profiles"
+            element={(
+              <ProtectedRoute auth={auth} allowedRoles={['patient']}>
+                <FamilyProfilesPage auth={auth} />
               </ProtectedRoute>
             )}
           />

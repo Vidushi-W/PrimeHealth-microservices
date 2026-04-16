@@ -1,5 +1,5 @@
 const PatientAppointment = require("../models/PatientAppointment");
-const PatientProfile = require("../models/PatientProfile");
+const { getAccessibleProfile } = require("./familyProfileService");
 const { getDoctorBookingDetails, getDoctorSlots, searchDoctors } = require("./doctorDirectoryService");
 
 function formatDateLabel(dateText) {
@@ -107,8 +107,13 @@ async function listDoctorSlots(doctorId, dateText, mode) {
   }));
 }
 
-async function listMyAppointments(patientId) {
-  const appointments = await PatientAppointment.find({ patientId }).sort({
+async function listMyAppointments(patientId, profileId) {
+  const query = { patientId };
+  if (profileId) {
+    query.patientProfileId = profileId;
+  }
+
+  const appointments = await PatientAppointment.find(query).sort({
     appointmentDate: 1,
     createdAt: -1,
   });
@@ -116,7 +121,7 @@ async function listMyAppointments(patientId) {
   return appointments.map(buildAppointmentResponse);
 }
 
-async function createAppointmentBooking(patientId, payload) {
+async function createAppointmentBooking(patientId, payload, profileId) {
   const requiredFields = ["doctorId", "appointmentDate", "timeSlot", "mode"];
   const missing = requiredFields.filter((field) => !String(payload[field] || "").trim());
 
@@ -165,7 +170,7 @@ async function createAppointmentBooking(patientId, payload) {
     };
   }
 
-  const patientProfile = await PatientProfile.findOne({ userId: patientId });
+  const patientProfile = await getAccessibleProfile(patientId, profileId);
   if (!patientProfile) {
     return {
       status: 404,

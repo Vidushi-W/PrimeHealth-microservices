@@ -8,6 +8,12 @@ const riskAssessmentSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    profileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PatientProfile",
+      required: true,
+      index: true,
+    },
     age: {
       type: Number,
       required: true,

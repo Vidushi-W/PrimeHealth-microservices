@@ -105,6 +105,9 @@ async function createRoleProfile(user, payload) {
   if (user.role === "patient") {
     await PatientProfile.create({
       userId: user._id,
+      fullName: user.fullName,
+      relation: "self",
+      isPrimary: true,
       dateOfBirth: payload.dateOfBirth,
       gender: payload.gender,
       bloodGroup: payload.bloodGroup,
@@ -113,6 +116,7 @@ async function createRoleProfile(user, payload) {
       address: payload.address,
       emergencyContactName: payload.emergencyContactName,
       emergencyContactPhone: payload.emergencyContactPhone,
+      emergencyNotes: payload.emergencyNotes,
       profilePhoto: payload.profilePhoto,
     });
   }

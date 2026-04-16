@@ -149,7 +149,21 @@ const patientProfileSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true,
+      index: true,
+    },
+    fullName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    relation: {
+      type: String,
+      trim: true,
+      default: "self",
+    },
+    isPrimary: {
+      type: Boolean,
+      default: false,
     },
     dateOfBirth: {
       type: Date,
@@ -187,6 +201,11 @@ const patientProfileSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    emergencyNotes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     profilePhoto: {
       type: String,
       trim: true,
@@ -201,6 +220,11 @@ const patientProfileSchema = new mongoose.Schema(
     timestamps: true,
     collection: "patient_profiles",
   }
+);
+
+patientProfileSchema.index(
+  { userId: 1, isPrimary: 1 },
+  { unique: true, partialFilterExpression: { isPrimary: true } }
 );
 
 module.exports = mongoose.model("PatientProfile", patientProfileSchema);

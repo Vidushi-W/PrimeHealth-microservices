@@ -11,6 +11,13 @@ const {
   updateProfile,
 } = require("../controllers/patientProfileController");
 const {
+  createProfile,
+  deleteProfile,
+  getProfileById,
+  listProfiles,
+  updateProfile: updateFamilyProfile,
+} = require("../controllers/familyProfileController");
+const {
   createAppointment,
   getAppointments,
   getDoctors,
@@ -34,6 +41,11 @@ router.use(protect);
 router.use(authorizeRoles("patient"));
 
 router.get("/home", getHome);
+router.get("/profiles", listProfiles);
+router.post("/profiles", createProfile);
+router.get("/profiles/:id", getProfileById);
+router.put("/profiles/:id", updateFamilyProfile);
+router.delete("/profiles/:id", deleteProfile);
 router.get("/timeline", getTimeline);
 router.get("/reports", getReports);
 router.post("/reports", uploadReport);

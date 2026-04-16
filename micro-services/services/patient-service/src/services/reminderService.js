@@ -1,5 +1,5 @@
-const PatientProfile = require("../models/PatientProfile");
 const Reminder = require("../models/Reminder");
+const { getAccessibleProfile } = require("./familyProfileService");
 
 function toDateTime(date, time) {
   return new Date(`${date}T${time}:00`);
@@ -76,10 +76,6 @@ async function syncMissedStatuses(patientId) {
   );
 }
 
-async function getProfileForPatient(patientId) {
-  return PatientProfile.findOne({ userId: patientId });
-}
-
 function validatePayload(payload, { partial = false } = {}) {
   const required = partial ? [] : ["type", "title", "date", "time", "repeat"];
   const missing = required.filter((field) => !String(payload[field] || "").trim());
@@ -110,7 +106,7 @@ function validatePayload(payload, { partial = false } = {}) {
   return "";
 }
 
-async function createReminder(patientId, payload) {
+async function createReminder(patientId, payload, profileId) {
   const validationError = validatePayload(payload);
   if (validationError) {
     return {
@@ -119,7 +115,7 @@ async function createReminder(patientId, payload) {
     };
   }
 
-  const profile = await getProfileForPatient(patientId);
+  const profile = await getAccessibleProfile(patientId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -153,10 +149,15 @@ async function createReminder(patientId, payload) {
   };
 }
 
-async function listReminders(patientId) {
+async function listReminders(patientId, profileId) {
   await syncMissedStatuses(patientId);
 
-  const reminders = await Reminder.find({ patientId }).sort({ dateTime: 1, createdAt: -1 });
+  const query = { patientId };
+  if (profileId) {
+    query.profileId = profileId;
+  }
+
+  const reminders = await Reminder.find(query).sort({ dateTime: 1, createdAt: -1 });
   const all = reminders.map(buildReminderResponse);
   const { start, end } = getTodayBounds();
 
@@ -172,14 +173,19 @@ async function listReminders(patientId) {
   };
 }
 
-async function listUpcomingReminders(patientId) {
+async function listUpcomingReminders(patientId, profileId) {
   await syncMissedStatuses(patientId);
 
-  const reminders = await Reminder.find({
+  const query = {
     patientId,
     status: "upcoming",
     dateTime: { $gte: new Date() },
-  }).sort({ dateTime: 1 });
+  };
+  if (profileId) {
+    query.profileId = profileId;
+  }
+
+  const reminders = await Reminder.find(query).sort({ dateTime: 1 });
 
   return {
     status: 200,

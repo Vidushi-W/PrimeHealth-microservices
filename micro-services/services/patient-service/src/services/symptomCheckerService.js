@@ -1,5 +1,6 @@
 const OpenAI = require("openai");
 const SymptomCheck = require("../models/SymptomCheck");
+const { getAccessibleProfile } = require("./familyProfileService");
 
 const DEFAULT_DISCLAIMER = "This is a preliminary symptom check and not a medical diagnosis.";
 const DEFAULT_AI_DISCLAIMER = "This is a preliminary AI-assisted symptom check for informational use only and not a medical diagnosis.";
@@ -393,7 +394,7 @@ async function enrichSymptomResultWithAI(payload, ruleResult) {
   };
 }
 
-async function checkSymptoms(patientId, payload) {
+async function checkSymptoms(patientId, payload, profileId) {
   const normalizedSymptoms = normalizeSymptomList(payload.symptoms);
   const duration = String(payload.duration || "").trim();
   const severity = String(payload.severity || "").trim().toLowerCase();
@@ -433,6 +434,14 @@ async function checkSymptoms(patientId, payload) {
   let result = ruleResult;
   let analysisSource = "rules";
 
+  const profile = await getAccessibleProfile(patientId, profileId);
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
   try {
     const enriched = await enrichSymptomResultWithAI(normalizedPayload, ruleResult);
     result = enriched.result;
@@ -443,6 +452,7 @@ async function checkSymptoms(patientId, payload) {
 
   const savedCheck = await SymptomCheck.create({
     patientId,
+    profileId: profile._id,
     symptoms: normalizedSymptoms,
     duration,
     severity,

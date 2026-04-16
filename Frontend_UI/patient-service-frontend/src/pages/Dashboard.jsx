@@ -344,6 +344,7 @@ function Dashboard({ auth, onProfileSync }) {
             <p className="eyebrow">Patient dashboard</p>
             <h1>{homeData?.welcomeCard?.title || 'Welcome back'}</h1>
             <p>{homeData?.welcomeCard?.subtitle}</p>
+            {homeData?.profile?.fullName ? <p className="text-muted">Currently viewing: {homeData.profile.fullName}&apos;s profile</p> : null}
           </div>
 
           <div className="welcome-actions">

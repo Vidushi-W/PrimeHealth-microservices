@@ -3,6 +3,7 @@ const PatientProfile = require("../models/PatientProfile");
 const { fetchPrescriptionsByPatient } = require("./prescriptionServiceClient");
 const { listMyAppointments } = require("./appointmentBookingService");
 const { analyzeImageScan, analyzeTextReport, DEFAULT_DISCLAIMER } = require("./modelReportAnalyzer");
+const { buildProfileSummary, getAccessibleProfile, getPrimaryProfile, listProfilesForUser } = require("./familyProfileService");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -31,18 +32,8 @@ function buildProfileResponse(user, profile) {
   return {
     user: buildUserSummary(user),
     profile: {
-      dateOfBirth: profile.dateOfBirth,
-      gender: profile.gender,
-      bloodGroup: profile.bloodGroup,
-      allergies: profile.allergies,
-      chronicConditions: profile.chronicConditions,
-      address: profile.address,
-      emergencyContactName: profile.emergencyContactName,
-      emergencyContactPhone: profile.emergencyContactPhone,
-      profilePhoto: profile.profilePhoto,
+      ...buildProfileSummary(profile),
       uploadedReports: buildUploadedReports(profile.uploadedReports || []),
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
     },
   };
 }
@@ -313,8 +304,10 @@ function buildAppointmentReminders(appointments = []) {
 }
 
 function buildWelcomeCard(user, profile) {
+  const displayName = (profile.fullName || user.fullName || "Patient").split(" ")[0] || "Patient";
+
   return {
-    title: `Welcome back, ${user.fullName.split(" ")[0] || "Patient"}`,
+    title: `Welcome back, ${displayName}`,
     subtitle: "Your care updates, prescriptions, and next actions are all in one place.",
     stats: [
       {
@@ -550,7 +543,7 @@ function buildTimelineItems({ appointments = [], reports = [], prescriptions = [
   ]);
 }
 
-async function getMyPatientProfile(userId) {
+async function getMyPatientProfile(userId, profileId) {
   const user = await User.findById(userId);
   if (!user) {
     return {
@@ -559,7 +552,7 @@ async function getMyPatientProfile(userId) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId });
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -573,7 +566,7 @@ async function getMyPatientProfile(userId) {
   };
 }
 
-async function getMyPatientHome(userId) {
+async function getMyPatientHome(userId, profileId) {
   const user = await User.findById(userId);
   if (!user) {
     return {
@@ -582,7 +575,7 @@ async function getMyPatientHome(userId) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId });
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -600,7 +593,7 @@ async function getMyPatientHome(userId) {
   }
 
   try {
-    appointments = await listMyAppointments(userId);
+    appointments = await listMyAppointments(userId, profile._id);
   } catch (_error) {
     appointments = [];
   }
@@ -618,6 +611,7 @@ async function getMyPatientHome(userId) {
       message: "Patient home fetched successfully",
       user: buildUserSummary(user),
       profile: buildProfileResponse(user, profile).profile,
+      familyProfiles: await listProfilesForUser(userId),
       welcomeCard: buildWelcomeCard(user, profile),
       upcomingAppointments: buildUpcomingAppointments(appointments, profile),
       recentPrescriptions: buildPrescriptionSummary(prescriptions),
@@ -629,7 +623,7 @@ async function getMyPatientHome(userId) {
   };
 }
 
-async function getMyPatientTimeline(userId) {
+async function getMyPatientTimeline(userId, profileId) {
   const user = await User.findById(userId);
   if (!user) {
     return {
@@ -638,7 +632,7 @@ async function getMyPatientTimeline(userId) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId });
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -656,7 +650,7 @@ async function getMyPatientTimeline(userId) {
   }
 
   try {
-    appointments = await listMyAppointments(userId);
+    appointments = await listMyAppointments(userId, profile._id);
   } catch (_error) {
     appointments = [];
   }
@@ -677,7 +671,7 @@ async function getMyPatientTimeline(userId) {
   };
 }
 
-async function uploadPatientReport(userId, payload) {
+async function uploadPatientReport(userId, payload, profileId) {
   const user = await User.findById(userId);
   if (!user) {
     return {
@@ -686,7 +680,7 @@ async function uploadPatientReport(userId, payload) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId });
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -748,8 +742,8 @@ async function uploadPatientReport(userId, payload) {
   };
 }
 
-async function listMyPatientReports(userId) {
-  const profile = await PatientProfile.findOne({ userId });
+async function listMyPatientReports(userId, profileId) {
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -766,8 +760,8 @@ async function listMyPatientReports(userId) {
   };
 }
 
-async function analyzePatientReport(userId, reportId) {
-  const profile = await PatientProfile.findOne({ userId });
+async function analyzePatientReport(userId, reportId, profileId) {
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -853,8 +847,8 @@ async function analyzePatientReport(userId, reportId) {
   }
 }
 
-async function deletePatientReport(userId, reportId) {
-  const profile = await PatientProfile.findOne({ userId });
+async function deletePatientReport(userId, reportId, profileId) {
+  const profile = await getAccessibleProfile(userId, profileId);
   if (!profile) {
     return {
       status: 404,
@@ -896,7 +890,7 @@ async function getPatientSummaryForDoctor(patientId) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId: patientId });
+  const profile = await getPrimaryProfile(patientId);
   if (!profile) {
     return {
       status: 404,
@@ -922,7 +916,7 @@ async function updateMyPatientProfile(userId, payload) {
     };
   }
 
-  const profile = await PatientProfile.findOne({ userId });
+  const profile = await getPrimaryProfile(userId);
   if (!profile) {
     return {
       status: 404,
@@ -975,14 +969,14 @@ async function updateMyPatientProfile(userId, payload) {
   }
 
   if (Object.keys(profileUpdates).length > 0) {
-    await PatientProfile.findOneAndUpdate({ userId }, profileUpdates, {
+    await PatientProfile.findOneAndUpdate({ _id: profile._id }, profileUpdates, {
       new: true,
       runValidators: true,
     });
   }
 
   const updatedUser = await User.findById(userId);
-  const updatedProfile = await PatientProfile.findOne({ userId });
+  const updatedProfile = await getPrimaryProfile(userId);
 
   return {
     status: 200,

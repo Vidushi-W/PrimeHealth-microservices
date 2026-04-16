@@ -9,7 +9,7 @@ const {
 
 async function createPatientReminder(req, res) {
   try {
-    const result = await createReminder(req.user._id, req.body);
+    const result = await createReminder(req.user._id, req.body, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -21,7 +21,7 @@ async function createPatientReminder(req, res) {
 
 async function getPatientReminders(req, res) {
   try {
-    const result = await listReminders(req.user._id);
+    const result = await listReminders(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
@@ -33,7 +33,7 @@ async function getPatientReminders(req, res) {
 
 async function getUpcomingPatientReminders(req, res) {
   try {
-    const result = await listUpcomingReminders(req.user._id);
+    const result = await listUpcomingReminders(req.user._id, req.headers["x-profile-id"]);
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({
