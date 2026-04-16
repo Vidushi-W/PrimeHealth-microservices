@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Doctor = require('../models/Doctor');
 const ApiError = require('../utils/ApiError');
 const { fetchPrescriptionsByPatient } = require('./prescriptionServiceClient');
+const { fetchPatientSummary } = require('./patientServiceClient');
 
 const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const SLOT_STATUS = {
@@ -187,10 +188,22 @@ async function listDoctors(filters = {}) {
 }
 
 async function getDoctorById(id) {
-  if (!mongoose.isValidObjectId(id)) throw new ApiError(400, 'Invalid doctor id');
   const doctor = await Doctor.findById(id);
-  if (!doctor) throw new ApiError(404, 'Doctor not found');
-  return doctor;
+  
+  if (!doctor) {
+    // Try email as fallback
+    const byEmail = await Doctor.findOne({ email: id });
+    if (!byEmail) throw new ApiError(404, `Doctor not found with ID/Email: ${id}`);
+    
+    const doctorObj = byEmail.toObject();
+    doctorObj.isAvailable = true;
+    return doctorObj;
+  }
+  
+  const doctorObj = doctor.toObject();
+  doctorObj.isAvailable = true; 
+  
+  return doctorObj;
 }
 
 async function updateDoctorById(id, updates) {
@@ -325,6 +338,7 @@ async function getPatientSummary(doctorId, patientId) {
   await getDoctorById(doctorId);
 
   const allPatientPrescriptions = await fetchPrescriptionsByPatient(patientId);
+  const patientSummary = await fetchPatientSummary(patientId);
   const prescriptionsForDoctor = sortPrescriptionsByDateDesc(
     (allPatientPrescriptions || []).filter(
       (prescription) => String(prescription.doctorId) === String(doctorId)
@@ -332,15 +346,15 @@ async function getPatientSummary(doctorId, patientId) {
   );
 
   return {
-    patient: {
-      id: patientId
-    },
+    patient: patientSummary?.patient || { id: patientId },
     stats: {
       totalPrescriptions: prescriptionsForDoctor.length,
       lastPrescriptionDate: prescriptionsForDoctor[0]?.createdAt || null,
-      mostCommonDiagnosis: calculateMostCommonDiagnosis(prescriptionsForDoctor)
+      mostCommonDiagnosis: calculateMostCommonDiagnosis(prescriptionsForDoctor),
+      totalReports: Array.isArray(patientSummary?.reports) ? patientSummary.reports.length : 0
     },
-    recentPrescriptions: prescriptionsForDoctor.slice(0, 5)
+    recentPrescriptions: prescriptionsForDoctor.slice(0, 5),
+    reports: patientSummary?.reports || []
   };
 }
 
