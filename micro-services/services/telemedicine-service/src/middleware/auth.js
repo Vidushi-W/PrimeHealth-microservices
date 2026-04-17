@@ -21,7 +21,8 @@ const normalizeAuthUser = (payload) => {
     return {
         userId,
         role,
-        email: payload.email || ''
+        email: payload.email || '',
+        uniqueId: String(payload.uniqueId || payload.externalRef || '').trim()
     };
 };
 
@@ -45,15 +46,25 @@ const auth = (req, res, next) => {
     try {
         const payload = jwt.verify(token, env.jwtSecret);
         const user = normalizeAuthUser(payload);
+        const headerUserId = String(req.headers['x-user-id'] || '').trim();
+        const headerEmail = String(req.headers['x-user-email'] || '').trim();
+        const headerUniqueId = String(req.headers['x-user-unique-id'] || '').trim();
 
-        if (!user.userId || !user.role) {
+        const mergedUser = {
+            ...user,
+            userId: user.userId || headerUserId,
+            email: user.email || headerEmail,
+            uniqueId: user.uniqueId || headerUniqueId
+        };
+
+        if (!mergedUser.userId || !mergedUser.role) {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid authentication token payload.'
             });
         }
 
-        req.user = user;
+        req.user = mergedUser;
         return next();
     } catch (error) {
         return res.status(401).json({

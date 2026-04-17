@@ -13,10 +13,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         position="top-right"
         toastOptions={{
           style: {
-            borderRadius: '14px',
-            background: '#ffffff',
-            color: '#0f172a',
-            boxShadow: '0 18px 40px rgba(94, 183, 136, 0.14)'
+            borderRadius: '16px',
+            border: '1px solid #d7e4ee',
+            background: 'linear-gradient(180deg, #ffffff, #f4f9ff)',
+            color: '#183246',
+            boxShadow: '0 16px 34px rgba(14, 60, 92, 0.16)'
           }
         }}
       />

@@ -45,6 +45,20 @@ function unwrap(response) {
   return response?.data?.data ?? response?.data ?? null;
 }
 
+function unwrapAppointmentCollection(response) {
+  const payload = unwrap(response);
+
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload?.appointments)) {
+    return payload.appointments;
+  }
+
+  return [];
+}
+
 function normalizeRole(role) {
   if (!role) return '';
   return String(role).toUpperCase();
@@ -56,16 +70,20 @@ function resolveAuthContext(authOrToken) {
   const user = typeof authOrToken === 'object' && authOrToken?.user ? authOrToken.user : stored.user || {};
   const userId = user.userId || user.id || user._id || localStorage.getItem('primehealth:userId') || '';
   const role = user.role || localStorage.getItem('primehealth:role') || '';
-  return { token, userId, role: normalizeRole(role) };
+  const email = user.email || '';
+  const uniqueId = user.uniqueId || '';
+  return { token, userId, role: normalizeRole(role), email, uniqueId };
 }
 
 export function authHeaders(authOrToken) {
-  const { token, userId, role } = resolveAuthContext(authOrToken);
+  const { token, userId, role, email, uniqueId } = resolveAuthContext(authOrToken);
   const headers = {};
 
   if (token) headers.Authorization = `Bearer ${token}`;
   if (userId) headers['x-user-id'] = userId;
   if (role) headers['x-user-role'] = role;
+  if (email) headers['x-user-email'] = email;
+  if (uniqueId) headers['x-user-unique-id'] = uniqueId;
 
   return headers;
 }
@@ -73,8 +91,7 @@ export function authHeaders(authOrToken) {
 export async function signIn(credentials) {
   const response = await adminApi.post('/api/auth/login', {
     email: credentials.email,
-    password: credentials.password,
-    role: credentials.role
+    password: credentials.password
   });
   return unwrap(response);
 }
@@ -104,21 +121,64 @@ export async function fetchDoctorAppointments(token) {
   const response = await appointmentApi.get('/api/appointments', {
     headers: authHeaders(token)
   });
-  return unwrap(response) || [];
+  return unwrapAppointmentCollection(response);
 }
 
 export async function fetchAllAppointments(token) {
   const response = await appointmentApi.get('/api/appointments', {
     headers: authHeaders(token)
   });
-  return unwrap(response) || [];
+  return unwrapAppointmentCollection(response);
 }
 
 export async function fetchPatientAppointments(token) {
   const response = await appointmentApi.get('/api/appointments/my', {
     headers: authHeaders(token)
   });
-  return unwrap(response) || [];
+  return unwrapAppointmentCollection(response);
+}
+
+export async function fetchAppointmentById(authOrToken, appointmentId) {
+  const response = await appointmentApi.get(`/api/appointments/${appointmentId}`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function cancelAppointment(authOrToken, appointmentId) {
+  const response = await appointmentApi.patch(
+    `/api/appointments/${appointmentId}/cancel`,
+    {},
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+  return unwrap(response);
+}
+
+export async function fetchAppointmentQueue(authOrToken, appointmentId) {
+  const response = await appointmentApi.get(`/api/appointments/${appointmentId}/queue`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function updateAppointmentStatus(authOrToken, appointmentId, status) {
+  const response = await appointmentApi.patch(
+    `/api/appointments/${appointmentId}/status`,
+    { status },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+
+  return unwrap(response);
 }
 
 export async function createAppointment(authOrToken, payload) {
@@ -149,6 +209,90 @@ export async function fetchPayments(token) {
     headers: authHeaders(token)
   });
   return unwrap(response) || [];
+}
+
+export async function initiatePayment(authOrToken, payload) {
+  const response = await paymentApi.post(
+    '/api/payments/initiate',
+    payload,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+
+  return unwrap(response);
+}
+
+export function submitHostedCheckout(checkout, target = '_self') {
+  if (!checkout?.actionUrl || !checkout?.fields) {
+    throw new Error('Checkout payload is incomplete.');
+  }
+
+  const form = document.createElement('form');
+  form.method = checkout.method || 'POST';
+  form.action = checkout.actionUrl;
+  form.target = target;
+
+  Object.entries(checkout.fields).forEach(([key, value]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = key;
+    input.value = value == null ? '' : String(value);
+    form.appendChild(input);
+  });
+
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+}
+
+export async function confirmPayment(authOrToken, orderId) {
+  const response = await paymentApi.post(
+    '/api/payments/confirm',
+    { orderId },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+
+  return unwrap(response);
+}
+
+export async function fetchPaymentById(authOrToken, paymentId) {
+  const response = await paymentApi.get(`/api/payments/${paymentId}`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function fetchPaymentByOrderId(authOrToken, orderId) {
+  const response = await paymentApi.get(`/api/payments/order/${orderId}`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function fetchDoctorEarningsSummary(authOrToken, doctorId) {
+  const response = await paymentApi.get(`/api/payments/doctor/${doctorId}/summary`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function downloadPaymentInvoice(authOrToken, paymentId) {
+  const response = await paymentApi.get(`/api/payments/${paymentId}/invoice`, {
+    headers: authHeaders(authOrToken),
+    responseType: 'blob'
+  });
+
+  const blob = new Blob([response.data], { type: 'application/pdf' });
+  return URL.createObjectURL(blob);
 }
 
 export async function fetchAllPayments(token) {
@@ -210,7 +354,7 @@ export async function verifyDoctorAccount(token, doctorId) {
 }
 
 export async function updateDoctorAccount(token, doctorId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/doctor/${doctorId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/doctors/${doctorId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -220,7 +364,7 @@ export async function updateDoctorAccount(token, doctorId, payload) {
 }
 
 export async function deactivateDoctorAccount(token, doctorId) {
-  const response = await adminApi.patch(`/api/admin/users/doctor/${doctorId}/deactivate`, {}, {
+  const response = await adminApi.patch(`/api/admin/users/doctors/${doctorId}/deactivate`, {}, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -230,7 +374,7 @@ export async function deactivateDoctorAccount(token, doctorId) {
 }
 
 export async function updatePatientAccount(token, patientId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/patient/${patientId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/patients/${patientId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -261,10 +405,76 @@ export async function fetchTelemedicineSessions(token) {
   return unwrap(response) || [];
 }
 
+export async function fetchTelemedicineSessionById(authOrToken, sessionId) {
+  const response = await telemedicineApi.get(`/telemedicine/sessions/${sessionId}`, {
+    headers: authHeaders(authOrToken)
+  });
+  return unwrap(response);
+}
+
+export async function createTelemedicineSession(authOrToken, payload) {
+  const response = await telemedicineApi.post('/telemedicine/sessions', payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
+export async function startTelemedicineSession(authOrToken, sessionId) {
+  const response = await telemedicineApi.post(`/telemedicine/sessions/${sessionId}/start`, {}, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
+export async function joinTelemedicineSession(authOrToken, sessionId) {
+  const response = await telemedicineApi.post(`/telemedicine/sessions/${sessionId}/join`, {}, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
+export async function endTelemedicineSession(authOrToken, sessionId) {
+  const response = await telemedicineApi.post(`/telemedicine/sessions/${sessionId}/end`, {}, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
+export async function cancelTelemedicineSession(authOrToken, sessionId) {
+  const response = await telemedicineApi.post(`/telemedicine/sessions/${sessionId}/cancel`, {}, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
 export async function fetchDoctorPrescriptions(token, doctorId) {
   if (!doctorId) return [];
 
   const response = await prescriptionApi.get(`/api/prescriptions/doctor/${doctorId}`, {
+    headers: authHeaders(token)
+  });
+  return unwrap(response) || [];
+}
+
+export async function fetchPatientPrescriptions(token, patientId) {
+  if (!patientId) return [];
+
+  const response = await prescriptionApi.get(`/api/prescriptions/patient/${patientId}`, {
     headers: authHeaders(token)
   });
   return unwrap(response) || [];

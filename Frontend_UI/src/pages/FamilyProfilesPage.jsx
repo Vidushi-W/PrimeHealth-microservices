@@ -167,7 +167,7 @@ function FamilyProfilesPage({ auth }) {
   }
 
   return (
-    <div className="dashboard animate-fade-in">
+    <div className="dashboard patient-feature-compact animate-fade-in">
       <section className="welcome-card glass">
         <div>
           <p className="eyebrow">Family profiles</p>

@@ -2,7 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const appointmentController = require('../controllers/appointmentController');
 const validate = require('../utils/validate');
-const { parseAuthHeaders, requireRole } = require('../middleware/auth');
+const { parseAuthHeaders, requireRole, requireInternalServiceToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -27,6 +27,7 @@ router.post(
     body('appointmentDate').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Date must be in YYYY-MM-DD format'),
     body('startTime').matches(/^\d{2}:\d{2}$/).withMessage('Time must be in HH:mm format'),
     body('endTime').optional().matches(/^\d{2}:\d{2}$/).withMessage('Time must be in HH:mm format'),
+    body('mode').optional().isIn(['online', 'physical']).withMessage('Mode must be online or physical'),
   ],
   validate,
   appointmentController.createAppointment
@@ -127,6 +128,7 @@ router.patch(
  */
 router.patch(
   '/:id/payment-status',
+  requireInternalServiceToken,
   [
     body('paymentStatus')
       .isIn(['UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED'])

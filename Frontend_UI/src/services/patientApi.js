@@ -205,6 +205,14 @@ export async function getReminders(token) {
   return parseResponse(response);
 }
 
+export async function getUpcomingReminders(token) {
+  const response = await fetch(`${API_BASE_URL}/api/patients/reminders/upcoming`, {
+    headers: buildAuthHeaders(token),
+  });
+
+  return parseResponse(response);
+}
+
 export async function createReminder(token, payload) {
   const response = await fetch(`${API_BASE_URL}/api/patients/reminders`, {
     method: 'POST',

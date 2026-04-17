@@ -6,12 +6,18 @@ const PAYMENT_STATUS = ['UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED'];
 const appointmentSchema = new mongoose.Schema(
   {
     patientId: { type: String, required: true, trim: true },
+    patientName: { type: String, trim: true, default: '' },
     doctorId: { type: String, required: true, trim: true },
     doctorName: { type: String, required: true, trim: true },
     specialty: { type: String, trim: true, default: '' },
     appointmentDate: { type: Date, required: true },
     startTime: { type: String, required: true, trim: true },   // e.g. "09:00"
     endTime: { type: String, required: true, trim: true },     // e.g. "09:30"
+    mode: {
+      type: String,
+      enum: ['online', 'physical'],
+      default: 'online'
+    },
     reason: { type: String, trim: true, default: '' },
     consultationFee: { type: Number, default: 0, min: 0 },
     queueNumber: { type: Number, default: 0 },

@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchDoctors, fetchPatientAppointments } from '../services/platformApi';
+import { fetchDoctors, fetchPatientAppointments, fetchPatientPrescriptions } from '../services/platformApi';
 
 export default function PatientDashboardPage({ auth }) {
   const [doctors, setDoctors] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const patientName = auth.user?.fullName || auth.user?.name || 'User';
+  const quickActions = [
+    { label: 'Book Appointment', to: '/patient/appointments/book', priority: 'primary' },
+    { label: 'Open Profile', to: '/profile', priority: 'secondary' },
+    { label: 'Calculate Risk Score', to: '/risk-score', priority: 'secondary' },
+    { label: 'Open Reminders', to: '/reminders', priority: 'secondary' },
+    { label: 'Start Symptom Check', to: '/symptom-checker', priority: 'secondary' },
+    { label: 'Family Profile', to: '/family-profiles', priority: 'secondary' },
+    { label: 'Health Risk Analyzer', to: '/health-risk-analyzer', priority: 'secondary' }
+  ];
 
   useEffect(() => {
     let mounted = true;
@@ -14,14 +25,16 @@ export default function PatientDashboardPage({ auth }) {
     const load = async () => {
       try {
         setLoading(true);
-        const [doctorList, appointmentList] = await Promise.all([
+        const [doctorList, appointmentList, prescriptionList] = await Promise.all([
           fetchDoctors().catch(() => []),
-          fetchPatientAppointments(auth.token).catch(() => [])
+          fetchPatientAppointments(auth.token).catch(() => []),
+          fetchPatientPrescriptions(auth.token, auth.user?.userId || auth.user?._id || auth.user?.id).catch(() => [])
         ]);
 
         if (!mounted) return;
         setDoctors(Array.isArray(doctorList) ? doctorList : []);
         setAppointments(Array.isArray(appointmentList) ? appointmentList : []);
+        setPrescriptions(Array.isArray(prescriptionList) ? prescriptionList : []);
         setError('');
       } catch (requestError) {
         if (!mounted) return;
@@ -36,7 +49,7 @@ export default function PatientDashboardPage({ auth }) {
     return () => {
       mounted = false;
     };
-  }, [auth.token]);
+  }, [auth.token, auth.user?.userId, auth.user?._id, auth.user?.id]);
 
   const topSpecialties = useMemo(() => {
     const counts = doctors.reduce((acc, doctor) => {
@@ -52,28 +65,43 @@ export default function PatientDashboardPage({ auth }) {
 
   return (
     <div className="space-y-7 animate-fade-up">
-      <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white/80 shadow-soft">
-        <div className="grid gap-6 px-6 py-8 lg:grid-cols-[1.15fr_0.85fr] lg:px-8 lg:py-10">
+      <section className="overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/80 shadow-soft">
+        <div className="space-y-4 px-4 py-4 lg:px-5 lg:py-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.35em] text-brand-600">Patient workspace</p>
-            <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
-              Hello {auth.user?.fullName || auth.user?.name || 'there'}, your care journey is active.
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.3em] text-brand-600">Patient workspace</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-[2rem]">
+              Welcome back, {patientName}
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-              Browse specialists, manage appointments, and jump into telemedicine sessions without friction.
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600 sm:text-sm">
+              Your care updates, prescriptions, and next actions are available in one place.
             </p>
+          </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link className="button-primary" to="/appointments">Book appointment</Link>
-              <Link className="button-secondary" to="/telemedicine">Open telemedicine</Link>
+          <div className="grid gap-2 sm:grid-cols-4">
+            <StatCard label="Appointments" value={appointments.length} />
+            <StatCard label="Doctors" value={doctors.length} />
+            <StatCard label="Prescriptions" value={prescriptions.length} />
+            <StatCard label="Specialties" value={topSpecialties.length} />
+          </div>
+
+          <div className="rounded-2xl border border-brand-100 bg-white/70 p-2 sm:p-3">
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-brand-700">Quick actions</p>
+            <div className="mt-2 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+              {quickActions.map((action) => (
+                <Link
+                  key={action.label}
+                  className={`${action.priority === 'primary' ? 'button-primary' : 'button-secondary'} shrink-0 whitespace-nowrap px-3 py-2 text-xs`}
+                  to={action.to}
+                >
+                  {action.label}
+                </Link>
+              ))}
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-[1.5rem] bg-brand-50 p-6 text-slate-900 shadow-soft sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-            <StatCard label="Appointments" value={appointments.length} />
-            <StatCard label="Doctors" value={doctors.length} />
-            <StatCard label="Specialties" value={topSpecialties.length} />
-          </div>
+          <p className="max-w-2xl text-[0.7rem] text-slate-500 sm:text-xs">
+            These quick actions cover appointment booking, profile management, reminders, family-member management, and AI-assisted symptom and risk workflows.
+          </p>
         </div>
       </section>
 
@@ -134,9 +162,9 @@ export default function PatientDashboardPage({ auth }) {
 
 function StatCard({ label, value }) {
   return (
-    <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-700">{label}</p>
-      <p className="mt-2 text-3xl font-black text-slate-900">{value}</p>
+    <div className="rounded-xl border border-brand-100 bg-white px-2 py-2 text-center shadow-sm">
+      <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-brand-700">{label}</p>
+      <p className="mt-0.5 text-lg font-black text-slate-900">{value}</p>
     </div>
   );
 }

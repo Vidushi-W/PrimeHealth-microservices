@@ -11,12 +11,20 @@ class AppointmentClient {
    * @param {string} paymentStatus (UNPAID, PAID, FAILED, REFUNDED)
    * @returns {Promise<boolean>}
    */
-  async updateAppointmentPaymentStatus(appointmentId, paymentStatus) {
+  async updateAppointmentPaymentStatus(appointmentId, paymentStatus, paymentId = null) {
     try {
       logger.info(`Updating appointment payment status: ${appointmentId} to ${paymentStatus}`);
-      
+
+      const headers = {};
+      if (process.env.INTERNAL_SERVICE_TOKEN) {
+        headers['x-internal-service-token'] = process.env.INTERNAL_SERVICE_TOKEN;
+      }
+
       const response = await axios.patch(`${APPOINTMENT_SERVICE_URL}/api/appointments/${appointmentId}/payment-status`, {
-        paymentStatus
+        paymentStatus,
+        paymentId
+      }, {
+        headers
       });
       
       return response.data.success;

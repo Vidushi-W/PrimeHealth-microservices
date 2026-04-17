@@ -8,11 +8,16 @@ import SlotCard from '../components/SlotCard';
 import SummaryCard from '../components/SummaryCard';
 import {
   addAvailability,
+  deleteAvailabilitySlot,
+  fetchDoctorReviews,
   getDoctorById,
   getPatientSummary,
+  submitDoctorReview,
+  updateAvailabilitySlot,
   updateSlotStatus
 } from '../services/doctorService';
 import { formatDateTime } from '../utils/formatters';
+import { getStoredAuth } from '../services/platformApi';
 
 function DoctorDetailsPage() {
   const { doctorId } = useParams();
@@ -24,6 +29,9 @@ function DoctorDetailsPage() {
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [reviewSummary, setReviewSummary] = useState({ averageRating: 0, totalRatings: 0, reviews: [] });
+  const [reviewForm, setReviewForm] = useState({ rating: 5, review: '' });
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     const loadDoctor = async () => {
@@ -31,6 +39,8 @@ function DoctorDetailsPage() {
         setLoading(true);
         const data = await getDoctorById(doctorId);
         setDoctor(data);
+        const reviews = await fetchDoctorReviews(doctorId).catch(() => ({ averageRating: 0, totalRatings: 0, reviews: [] }));
+        setReviewSummary(reviews);
       } catch (error) {
         toast.error(error.message || 'Failed to load doctor details');
       } finally {
@@ -64,8 +74,9 @@ function DoctorDetailsPage() {
     }
   };
 
-  const handleBookSlot = async (day, slot) => {
+  const handleToggleSlotStatus = async (day, slot) => {
     const key = `${day}-${slot.start}-${slot.end}`;
+    const nextStatus = slot.status === 'available' ? 'booked' : 'available';
 
     setDoctor((current) => ({
       ...current,
@@ -75,7 +86,7 @@ function DoctorDetailsPage() {
               ...availabilityItem,
               slots: availabilityItem.slots.map((item) =>
                 item.start === slot.start && item.end === slot.end
-                  ? { ...item, status: 'booked' }
+                  ? { ...item, status: nextStatus }
                   : item
               )
             }
@@ -89,20 +100,109 @@ function DoctorDetailsPage() {
         day,
         start: slot.start,
         end: slot.end,
-        status: 'booked'
+        status: nextStatus
       });
 
       setDoctor((current) => ({
         ...current,
         availability: updatedAvailability
       }));
-      toast.success('Slot booked successfully');
+      toast.success('Slot status updated');
     } catch (error) {
       toast.error(error.message || 'Failed to update slot');
       const refreshedDoctor = await getDoctorById(doctorId);
       setDoctor(refreshedDoctor);
     } finally {
       setUpdatingSlot('');
+    }
+  };
+
+  const handleEditSlot = async (day, slot) => {
+    const newStart = window.prompt('Enter new start time (HH:mm)', slot.start);
+    if (!newStart) return;
+
+    const newEnd = window.prompt('Enter new end time (HH:mm)', slot.end);
+    if (!newEnd) return;
+
+    const key = `${day}-${slot.start}-${slot.end}`;
+
+    try {
+      setUpdatingSlot(key);
+      const updatedAvailability = await updateAvailabilitySlot(doctorId, {
+        day,
+        start: slot.start,
+        end: slot.end,
+        newStart,
+        newEnd,
+        status: slot.status
+      });
+
+      setDoctor((current) => ({
+        ...current,
+        availability: updatedAvailability
+      }));
+      toast.success('Slot updated successfully');
+    } catch (error) {
+      toast.error(error.message || 'Failed to update availability slot');
+    } finally {
+      setUpdatingSlot('');
+    }
+  };
+
+  const handleDeleteSlot = async (day, slot) => {
+    const approved = window.confirm(`Remove slot ${slot.start} - ${slot.end} from ${day}?`);
+    if (!approved) return;
+
+    const key = `${day}-${slot.start}-${slot.end}`;
+
+    try {
+      setUpdatingSlot(key);
+      const updatedAvailability = await deleteAvailabilitySlot(doctorId, {
+        day,
+        start: slot.start,
+        end: slot.end
+      });
+
+      setDoctor((current) => ({
+        ...current,
+        availability: updatedAvailability
+      }));
+      toast.success('Slot deleted');
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete slot');
+    } finally {
+      setUpdatingSlot('');
+    }
+  };
+
+  const handleReviewSubmit = async (event) => {
+    event.preventDefault();
+
+    const auth = getStoredAuth();
+    const patientId = auth?.user?.id || auth?.user?._id || auth?.user?.userId;
+
+    if (!patientId) {
+      toast.error('Sign in as a patient to submit a review');
+      return;
+    }
+
+    try {
+      setSubmittingReview(true);
+      await submitDoctorReview(doctorId, {
+        patientId,
+        patientName: auth?.user?.fullName || auth?.user?.name || auth?.user?.email || 'Patient',
+        rating: Number(reviewForm.rating),
+        review: reviewForm.review
+      });
+
+      const reviews = await fetchDoctorReviews(doctorId);
+      setReviewSummary(reviews);
+      setReviewForm({ rating: 5, review: '' });
+      toast.success('Thanks for your review');
+    } catch (error) {
+      toast.error(error.message || 'Failed to submit review');
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -206,7 +306,9 @@ function DoctorDetailsPage() {
                         key={slotKey}
                         slot={slot}
                         disabled={updatingSlot === slotKey}
-                        onBook={() => handleBookSlot(availabilityItem.day, slot)}
+                        onToggleStatus={() => handleToggleSlotStatus(availabilityItem.day, slot)}
+                        onEdit={() => handleEditSlot(availabilityItem.day, slot)}
+                        onDelete={() => handleDeleteSlot(availabilityItem.day, slot)}
                       />
                     );
                   })}
@@ -317,6 +419,56 @@ function DoctorDetailsPage() {
             </div>
           </div>
         ) : null}
+      </section>
+
+      <section className="panel p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">Ratings and reviews</p>
+            <h3 className="mt-2 text-2xl font-semibold text-slate-900">Patient feedback</h3>
+          </div>
+          <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+            {Number(reviewSummary.averageRating || 0).toFixed(1)} / 5 ({reviewSummary.totalRatings || 0})
+          </span>
+        </div>
+
+        <form className="mt-5 grid gap-3 sm:grid-cols-[140px_1fr_auto]" onSubmit={handleReviewSubmit}>
+          <select
+            className="input"
+            value={reviewForm.rating}
+            onChange={(event) => setReviewForm((current) => ({ ...current, rating: event.target.value }))}
+          >
+            <option value="5">5 - Excellent</option>
+            <option value="4">4 - Good</option>
+            <option value="3">3 - Average</option>
+            <option value="2">2 - Poor</option>
+            <option value="1">1 - Bad</option>
+          </select>
+          <input
+            className="input"
+            value={reviewForm.review}
+            onChange={(event) => setReviewForm((current) => ({ ...current, review: event.target.value }))}
+            placeholder="Write a review (optional)"
+          />
+          <button className="button-primary" type="submit" disabled={submittingReview}>
+            {submittingReview ? 'Submitting...' : 'Submit review'}
+          </button>
+        </form>
+
+        <div className="mt-5 space-y-3">
+          {(reviewSummary.reviews || []).slice(0, 8).map((item) => (
+            <article key={item._id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900">{item.patientName || item.patientId}</p>
+                <p className="text-xs font-semibold text-brand-700">{item.rating}/5</p>
+              </div>
+              <p className="mt-1 text-sm text-slate-600">{item.review || 'No comment provided.'}</p>
+            </article>
+          ))}
+          {!reviewSummary.reviews?.length ? (
+            <p className="text-sm text-slate-500">No ratings submitted yet.</p>
+          ) : null}
+        </div>
       </section>
     </div>
   );

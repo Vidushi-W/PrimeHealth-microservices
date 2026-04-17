@@ -1,258 +1,199 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import DoctorCard from '../components/DoctorCard';
-import EmptyState from '../components/EmptyState';
-import LoadingState from '../components/LoadingState';
-import SummaryCard from '../components/SummaryCard';
-import { getDoctors, summarizeDoctorAppointments } from '../services/doctorService';
-import { resolveCurrentDoctor } from '../utils/currentDoctor';
+import { getDoctors } from '../services/doctorService';
 
-function DoctorListPage() {
+const WEEKDAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function getDoctorImageSrc(doctor) {
+  const picture = doctor?.profilePicture || doctor?.profileImage || '';
+  if (!picture) return '';
+  if (picture.startsWith('http://') || picture.startsWith('https://')) return picture;
+
+  const base = (import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002').replace(/\/+$/, '');
+  const path = picture.startsWith('/') ? picture : `/${picture}`;
+  return `${base}${path}`;
+}
+
+function getNextAvailableSlot(doctor) {
+  const availability = Array.isArray(doctor?.availability) ? doctor.availability : [];
+
+  const sortedDays = [...availability].sort((left, right) => {
+    const leftKey = WEEKDAY_ORDER.indexOf(String(left.day || '').toLowerCase());
+    const rightKey = WEEKDAY_ORDER.indexOf(String(right.day || '').toLowerCase());
+    return (leftKey === -1 ? 999 : leftKey) - (rightKey === -1 ? 999 : rightKey);
+  });
+
+  for (const day of sortedDays) {
+    const availableSlot = (day.slots || []).find((slot) => slot.status === 'available');
+    if (availableSlot) {
+      return `${day.day} ${availableSlot.start} - ${availableSlot.end}`;
+    }
+  }
+
+  return 'No open slots right now';
+}
+
+function formatRating(doctor) {
+  const average = Number(doctor?.ratingAverage || 0).toFixed(1);
+  const count = Number(doctor?.ratingCount || 0);
+  return `${average} / 5 (${count})`;
+}
+
+export default function DoctorListPage({ auth }) {
+  const role = String(auth?.user?.role || '').toLowerCase();
+  const isPatientView = role === 'patient';
+
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [specializationFilter, setSpecializationFilter] = useState('');
+  const [query, setQuery] = useState('');
+  const [specialization, setSpecialization] = useState('');
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
 
   useEffect(() => {
-    const fetchDoctors = async () => {
+    let mounted = true;
+
+    const load = async () => {
       try {
         setLoading(true);
-        setError('');
-        const data = await getDoctors();
-        setDoctors(data);
-      } catch (requestError) {
-        const message = requestError.message || 'Failed to fetch doctors';
-        setError(message);
-        toast.error(message);
+        const list = await getDoctors({ includeInactive: false });
+        if (!mounted) return;
+        setDoctors(Array.isArray(list) ? list : []);
+      } catch (error) {
+        toast.error(error.message || 'Unable to load doctors');
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
-    fetchDoctors();
+    load();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const specializations = useMemo(
-    () =>
-      [
-        ...new Set(
-          doctors
-            .map((doctor) => doctor.specialization)
-            .filter(Boolean)
-        )
-      ].sort(),
-    [doctors]
-  );
-
-  const currentDoctorContext = useMemo(() => resolveCurrentDoctor(doctors), [doctors]);
-  const currentDoctor = currentDoctorContext.doctor;
-  const appointmentSummary = useMemo(
-    () => summarizeDoctorAppointments(currentDoctor),
-    [currentDoctor]
-  );
+  const specializationOptions = useMemo(() => {
+    return [...new Set(doctors.map((doctor) => doctor.specialization).filter(Boolean))].sort();
+  }, [doctors]);
 
   const filteredDoctors = useMemo(() => {
-    if (!specializationFilter) return doctors;
-    return doctors.filter((doctor) => doctor.specialization === specializationFilter);
-  }, [doctors, specializationFilter]);
+    return doctors.filter((doctor) => {
+      const doctorText = `${doctor.name || ''} ${doctor.specialization || ''} ${doctor.hospitalOrClinic || ''}`.toLowerCase();
+      const nextSlot = getNextAvailableSlot(doctor);
+
+      if (query && !doctorText.includes(query.toLowerCase())) {
+        return false;
+      }
+
+      if (specialization && doctor.specialization !== specialization) {
+        return false;
+      }
+
+      if (onlyAvailable && nextSlot === 'No open slots right now') {
+        return false;
+      }
+
+      return true;
+    });
+  }, [doctors, onlyAvailable, query, specialization]);
 
   return (
-    <div className="space-y-8">
-      <section className="panel overflow-hidden">
-        <div className="grid gap-8 px-6 py-8 lg:grid-cols-[1.3fr_0.9fr] lg:px-8">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">
-              Doctor Portal
-            </p>
-            <h2 className="mt-3 max-w-2xl text-4xl font-semibold tracking-tight text-slate-900">
-              Welcome{currentDoctor?.name ? `, Dr. ${currentDoctor.name}` : ''}.
-            </h2>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-              Manage your PrimeHealth doctor profile, review your booked patient slots, and keep
-              an eye on the clinicians registered across the platform.
-            </p>
-            {currentDoctorContext.source === 'demo-fallback' ? (
-              <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                No logged-in doctor id or email was found in browser session data. The dashboard is
-                previewing the first registered doctor until the auth service provides the current
-                doctor identity.
-              </p>
-            ) : null}
-            {currentDoctor ? (
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link to="/profile" className="button-primary">
-                  Profile
-                </Link>
-                <a href={`mailto:${currentDoctor.email}`} className="button-secondary">
-                  {currentDoctor.email}
-                </a>
-              </div>
-            ) : null}
-          </div>
+    <div className="space-y-6 animate-fade-up">
+      <section className="panel p-6">
+        <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">
+          {isPatientView ? 'Find a doctor' : 'Doctor directory'}
+        </p>
+        <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+          {isPatientView ? 'Choose the right specialist quickly' : 'Discover and manage doctor profiles'}
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm text-slate-600">
+          {isPatientView
+            ? 'Search by name or specialty, inspect ratings and availability, then book with confidence.'
+            : 'Use directory filters to review colleagues and open profile-level availability controls.'}
+        </p>
 
-          <div className="rounded-lg border border-brand-100 bg-brand-50 p-6 text-slate-900 shadow-soft">
-            <p className="text-sm font-medium text-brand-700">My practice today</p>
-            <div className="mt-6 space-y-5">
-              <div>
-                <p className="text-4xl font-semibold">{appointmentSummary.total}</p>
-                <p className="mt-2 text-sm text-slate-600">appointments booked for your profile</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-brand-100 bg-white p-4 shadow-sm">
-                  <p className="text-sm text-slate-500">Specialization</p>
-                  <p className="mt-2 font-semibold text-slate-900">{currentDoctor?.specialization || 'Not set'}</p>
-                </div>
-                <div className="rounded-lg border border-brand-100 bg-white p-4 shadow-sm">
-                  <p className="text-sm text-slate-500">Experience</p>
-                  <p className="mt-2 font-semibold text-slate-900">
-                    {currentDoctor?.experience ?? 0} years
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard
-          label="Registered Doctors"
-          value={String(doctors.length)}
-          helper="All doctors in the Doctor Service"
-        />
-        <SummaryCard
-          label="Specializations"
-          value={String(specializations.length)}
-          helper="Unique specialties across the platform"
-        />
-        <SummaryCard
-          label="My Appointments"
-          value={String(appointmentSummary.total)}
-          helper="Counted from booked slots until appointment-service is connected"
-        />
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="panel p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-600">
-            My Profile
-          </p>
-          <h3 className="mt-3 text-2xl font-semibold text-slate-900">
-            {currentDoctor?.name || 'Current doctor'}
-          </h3>
-          <div className="mt-5 grid gap-4 text-sm">
-            <div>
-              <p className="font-medium text-slate-500">Email</p>
-              <p className="mt-1 text-slate-900">{currentDoctor?.email || 'Not available'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Specialization</p>
-              <p className="mt-1 text-slate-900">{currentDoctor?.specialization || 'Not set'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Experience</p>
-              <p className="mt-1 text-slate-900">{currentDoctor?.experience ?? 0} years</p>
-            </div>
-          </div>
-          <Link to="/profile" className="button-primary mt-6 w-full">
-            Edit my profile
-          </Link>
-        </div>
-
-        <div className="panel p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-600">
-                My Appointments
-              </p>
-              <h3 className="mt-3 text-2xl font-semibold text-slate-900">Booked patient slots</h3>
-            </div>
-            <span className="rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700">
-              {appointmentSummary.total} total
-            </span>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {appointmentSummary.recent.length ? (
-              appointmentSummary.recent.map((slot) => (
-                <div
-                  key={`${slot.day}-${slot.start}-${slot.end}`}
-                  className="rounded-lg border border-brand-100 bg-brand-50/50 px-4 py-3"
-                >
-                  <p className="font-semibold text-slate-900">{slot.day}</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {slot.start} - {slot.end}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                No booked slots are recorded for this doctor yet.
-              </p>
-            )}
-          </div>
-
-          <p className="mt-5 text-sm text-slate-500">
-            The appointment-service endpoint is not implemented in this repo yet, so this dashboard
-            is prepared to swap this card to real patient appointment records when that API becomes
-            available.
-          </p>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h3 className="text-2xl font-semibold text-slate-900">Registered doctors</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Review every doctor currently registered in the system.
-          </p>
-        </div>
-
-        <div className="w-full md:w-80">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-600">Filter by specialization</span>
-            <select
-              value={specializationFilter}
-              onChange={(event) => setSpecializationFilter(event.target.value)}
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Search</span>
+            <input
               className="input"
-            >
-              <option value="">All specializations</option>
-              {specializations.map((specialization) => (
-                <option key={specialization} value={specialization}>
-                  {specialization}
-                </option>
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Name, specialty, clinic"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Specialty</span>
+            <select className="input" value={specialization} onChange={(event) => setSpecialization(event.target.value)}>
+              <option value="">All specialties</option>
+              {specializationOptions.map((item) => (
+                <option key={item} value={item}>{item}</option>
               ))}
             </select>
+          </label>
+          <label className="mt-7 inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={onlyAvailable}
+              onChange={(event) => setOnlyAvailable(event.target.checked)}
+            />
+            Show only available doctors
           </label>
         </div>
       </section>
 
-      {loading ? <LoadingState label="Loading doctors..." /> : null}
+      {loading ? <section className="panel p-5 text-sm text-slate-500">Loading doctors...</section> : null}
 
-      {!loading && error ? (
-        <EmptyState
-          title="Unable to load doctors"
-          description="Please check that doctor-service is running on http://localhost:5002."
-        />
+      {!loading && filteredDoctors.length === 0 ? (
+        <section className="panel p-5 text-sm text-slate-500">No doctors match your search filters.</section>
       ) : null}
 
-      {!loading && !error && filteredDoctors.length === 0 ? (
-        <EmptyState
-          title="No doctors matched"
-          description="Try a different specialization filter or add doctors in the backend."
-        />
-      ) : null}
+      {!loading && filteredDoctors.length > 0 ? (
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredDoctors.map((doctor) => {
+            const doctorId = doctor._id || doctor.id;
+            const nextAvailable = getNextAvailableSlot(doctor);
 
-      {!loading && !error && filteredDoctors.length > 0 ? (
-        <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {filteredDoctors.map((doctor) => (
-            <DoctorCard key={doctor._id} doctor={doctor} />
-          ))}
+            return (
+              <article key={doctorId} className="panel flex h-full flex-col p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={getDoctorImageSrc(doctor) || 'https://placehold.co/96x96?text=Dr'}
+                      alt={`${doctor.name || 'Doctor'} profile`}
+                      className="h-16 w-16 shrink-0 rounded-2xl border border-brand-100 object-cover"
+                    />
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-600">{doctor.specialization || 'General care'}</p>
+                      <h2 className="mt-1 text-lg font-bold text-slate-900">{doctor.name || 'Doctor'}</h2>
+                      <p className="mt-1 text-sm text-slate-500">{doctor.hospitalOrClinic || doctor.email || 'PrimeHealth network'}</p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+                    {doctor.experience || 0} yrs
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-2 text-sm text-slate-700">
+                  <p><strong>Rating:</strong> {formatRating(doctor)}</p>
+                  <p><strong>Next availability:</strong> {nextAvailable}</p>
+                  <p><strong>Qualifications:</strong> {doctor.qualifications || 'Not specified'}</p>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Link className="button-secondary" to={`/doctors/${doctorId}`}>View profile</Link>
+                  {isPatientView ? (
+                    <Link className="button-primary" to={`/patient/appointments/book?doctorId=${doctorId}`}>Book appointment</Link>
+                  ) : (
+                    <Link className="button-primary" to={`/doctors/${doctorId}`}>Manage availability</Link>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </section>
       ) : null}
     </div>
   );
 }
-
-export default DoctorListPage;

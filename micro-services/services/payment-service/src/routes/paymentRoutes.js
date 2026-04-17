@@ -6,6 +6,8 @@ const { parseAuthHeaders, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.post('/payhere/notify', paymentController.handlePayHereNotify);
+
 router.use(parseAuthHeaders);
 
 /**
@@ -45,9 +47,15 @@ router.use(parseAuthHeaders);
 router.post(
   '/initiate',
   [
-    body('appointmentId').notEmpty().withMessage('Appointment ID is required'),
+    body('appointmentId')
+      .isMongoId()
+      .withMessage('Appointment ID must be a valid Mongo ObjectId'),
     body('patientId').notEmpty().withMessage('Patient ID is required'),
-    body('amount').isNumeric().withMessage('Amount must be a number')
+    body('amount')
+      .isNumeric()
+      .withMessage('Amount must be a number')
+      .custom((value) => Number(value) > 0)
+      .withMessage('Amount must be greater than zero')
   ],
   validate,
   paymentController.initiatePayment
@@ -107,7 +115,9 @@ router.get('/my', requireRole('PATIENT'), paymentController.getPayments);
  *       200:
  *         description: List of all payments
  */
-router.get('/', requireRole('ADMIN', 'PATIENT'), paymentController.getPayments);
+router.get('/', requireRole('ADMIN', 'PATIENT', 'DOCTOR'), paymentController.getPayments);
+
+router.get('/doctor/:doctorId/summary', requireRole('ADMIN', 'DOCTOR'), paymentController.getDoctorEarningsSummary);
 
 /**
  * @swagger
@@ -143,7 +153,7 @@ router.get('/order/:orderId', paymentController.getPaymentByOrderId);
  *       200:
  *         description: Payment details
  */
-router.get('/:id', requireRole('ADMIN', 'PATIENT'), paymentController.getPaymentById);
+router.get('/:id', requireRole('ADMIN', 'PATIENT', 'DOCTOR'), paymentController.getPaymentById);
 
 /**
  * @swagger
@@ -179,6 +189,6 @@ router.post('/:id/refund', requireRole('ADMIN'), paymentController.processRefund
  *       200:
  *         description: PDF file stream
  */
-router.get('/:id/invoice', requireRole('ADMIN', 'PATIENT'), paymentController.downloadInvoice);
+router.get('/:id/invoice', requireRole('ADMIN', 'PATIENT', 'DOCTOR'), paymentController.downloadInvoice);
 
 module.exports = router;

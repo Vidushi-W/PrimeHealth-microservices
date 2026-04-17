@@ -50,6 +50,14 @@ const paymentSchema = new mongoose.Schema(
     gatewayResponse: {
       type: mongoose.Schema.Types.Mixed
     },
+    gatewayProvider: {
+      type: String,
+      enum: ['SIMULATED', 'PAYHERE'],
+      default: 'SIMULATED'
+    },
+    checkoutData: {
+      type: mongoose.Schema.Types.Mixed
+    },
     invoiceNumber: {
       type: String
     }

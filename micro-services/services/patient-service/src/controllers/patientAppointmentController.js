@@ -52,7 +52,12 @@ async function getAppointments(req, res) {
 
 async function createAppointment(req, res) {
   try {
-    const result = await createAppointmentBooking(req.user._id, req.body, req.headers["x-profile-id"]);
+    const result = await createAppointmentBooking(
+      req.user._id,
+      req.body,
+      req.headers["x-profile-id"],
+      req.user.externalRef || req.user.uniqueId || req.user._id
+    );
     return res.status(result.status).json(result.body);
   } catch (error) {
     return res.status(500).json({

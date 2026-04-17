@@ -170,6 +170,11 @@ const patientAppointmentSchema = new mongoose.Schema(
       default: "pending",
       trim: true,
     },
+    externalAppointmentId: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     sharedReports: {
       type: [appointmentSharedReportSchema],
       default: [],

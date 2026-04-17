@@ -37,6 +37,13 @@ const doctorSchema = new mongoose.Schema(
     },
     specialization: { type: String, required: true, trim: true },
     experience: { type: Number, required: true, min: 0 },
+    phoneNumber: { type: String, trim: true, default: '' },
+    qualifications: { type: String, trim: true, default: '' },
+    hospitalOrClinic: { type: String, trim: true, default: '' },
+    bio: { type: String, trim: true, default: '' },
+    profilePicture: { type: String, trim: true, default: '' },
+    ratingAverage: { type: Number, min: 0, max: 5, default: 0 },
+    ratingCount: { type: Number, min: 0, default: 0 },
     status: {
       type: String,
       enum: ['pending', 'active', 'verified', 'inactive', 'suspended', 'deactivated'],

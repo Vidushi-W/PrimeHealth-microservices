@@ -1,6 +1,9 @@
 const PatientAppointment = require("../models/PatientAppointment");
+const axios = require("axios");
+const User = require("../models/User");
 const { getAccessibleProfile } = require("./familyProfileService");
 const { getDoctorBookingDetails, getDoctorSlots, searchDoctors } = require("./doctorDirectoryService");
+const { createCentralAppointment } = require("./appointmentServiceClient");
 
 function formatDateLabel(dateText) {
   if (!dateText) {
@@ -32,6 +35,7 @@ function buildAppointmentResponse(appointment) {
     reason: appointment.reason,
     status: appointment.status,
     paymentStatus: appointment.paymentStatus,
+    externalAppointmentId: appointment.externalAppointmentId || "",
     sharedReports: (appointment.sharedReports || []).map((report) => ({
       reportId: report.reportId,
       fileName: report.fileName,
@@ -52,6 +56,27 @@ function buildAppointmentResponse(appointment) {
     })),
     createdAt: appointment.createdAt,
   };
+}
+
+function getDoctorServiceBaseUrl() {
+  return (process.env.DOCTOR_SERVICE_URL || "http://localhost:5002").replace(/\/+$/, "");
+}
+
+async function resolveCentralDoctorId(doctor) {
+  if (!doctor?.email) {
+    return doctor?.id || "";
+  }
+
+  try {
+    const { data } = await axios.get(`${getDoctorServiceBaseUrl()}/api/doctors/${encodeURIComponent(doctor.email)}`);
+    if (data?.data?._id) {
+      return String(data.data._id);
+    }
+  } catch (_error) {
+    // Fall back to patient-service doctor identifier when doctor-service lookup is unavailable.
+  }
+
+  return doctor?.id || "";
 }
 
 function buildSharedReportsSnapshot(uploadedReports = []) {
@@ -121,7 +146,7 @@ async function listMyAppointments(patientId, profileId) {
   return appointments.map(buildAppointmentResponse);
 }
 
-async function createAppointmentBooking(patientId, payload, profileId) {
+async function createAppointmentBooking(patientId, payload, profileId, centralPatientId) {
   const requiredFields = ["doctorId", "appointmentDate", "timeSlot", "mode"];
   const missing = requiredFields.filter((field) => !String(payload[field] || "").trim());
 
@@ -148,7 +173,8 @@ async function createAppointmentBooking(patientId, payload, profileId) {
   }
 
   const slots = await listDoctorSlots(payload.doctorId, payload.appointmentDate, payload.mode);
-  const isSlotAvailable = slots.some((slot) => slot.value === payload.timeSlot && !slot.disabled);
+  const selectedSlot = slots.find((slot) => slot.value === payload.timeSlot && !slot.disabled);
+  const isSlotAvailable = Boolean(selectedSlot);
   if (!isSlotAvailable) {
     return {
       status: 400,
@@ -178,6 +204,9 @@ async function createAppointmentBooking(patientId, payload, profileId) {
     };
   }
 
+  const patientUser = await User.findById(patientId).select("fullName");
+  const patientName = String(patientProfile.fullName || patientUser?.fullName || "Patient").trim();
+
   const appointment = await PatientAppointment.create({
     patientId,
     patientProfileId: patientProfile._id,
@@ -194,6 +223,36 @@ async function createAppointmentBooking(patientId, payload, profileId) {
     paymentStatus: "pending",
     sharedReports: buildSharedReportsSnapshot(patientProfile.uploadedReports || []),
   });
+
+  try {
+    const centralDoctorId = await resolveCentralDoctorId(doctor);
+    const canonicalPatientId = String(centralPatientId || patientId || "").trim();
+
+    const centralAppointment = await createCentralAppointment({
+      patientId: canonicalPatientId,
+      patientName,
+      body: {
+        patientId: canonicalPatientId,
+        patientName,
+        doctorId: centralDoctorId,
+        doctorName: doctor.fullName,
+        specialty: doctor.specialization,
+        appointmentDate: payload.appointmentDate,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+        mode: payload.mode,
+        reason: payload.reason || "",
+        consultationFee: Number(doctor.consultationFee || 0)
+      }
+    });
+
+    if (centralAppointment?._id) {
+      appointment.externalAppointmentId = String(centralAppointment._id);
+      await appointment.save();
+    }
+  } catch (_error) {
+    // Keep patient booking persisted even if central sync fails.
+  }
 
   return {
     status: 201,

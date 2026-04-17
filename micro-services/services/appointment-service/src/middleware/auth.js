@@ -3,7 +3,10 @@ const ApiError = require('../utils/ApiError');
 function parseAuthHeaders(req, _res, next) {
   const userId = req.header('x-user-id') || null;
   const role = req.header('x-user-role') || null;
-  req.user = { id: userId, role };
+  const email = req.header('x-user-email') || null;
+  const uniqueId = req.header('x-user-unique-id') || null;
+  const fullName = req.header('x-user-full-name') || null;
+  req.user = { id: userId, role, email, uniqueId, fullName };
   next();
 }
 
@@ -26,4 +29,18 @@ function requireRole(...allowedRoles) {
   };
 }
 
-module.exports = { parseAuthHeaders, requireAuth, requireRole };
+function requireInternalServiceToken(req, _res, next) {
+  const expected = process.env.INTERNAL_SERVICE_TOKEN;
+  if (!expected) {
+    return next();
+  }
+
+  const provided = req.header('x-internal-service-token');
+  if (!provided || provided !== expected) {
+    return next(new ApiError(403, 'Forbidden: invalid internal service token'));
+  }
+
+  return next();
+}
+
+module.exports = { parseAuthHeaders, requireAuth, requireRole, requireInternalServiceToken };

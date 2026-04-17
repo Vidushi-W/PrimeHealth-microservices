@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 
 const User = require("../models/User");
 
@@ -14,8 +15,28 @@ async function protect(req, res, next) {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const tokenUserId = String(decoded?.sub || decoded?.id || "").trim();
+    const headerUserId = String(req.headers["x-user-id"] || "").trim();
+    const headerEmail = String(req.headers["x-user-email"] || "").trim().toLowerCase();
 
-    const user = await User.findById(decoded.sub);
+    if (!tokenUserId) {
+      return res.status(401).json({
+        message: "Invalid token payload",
+      });
+    }
+
+    const lookup = [
+      { externalRef: tokenUserId },
+      ...(headerUserId ? [{ externalRef: headerUserId }, { uniqueId: headerUserId }] : []),
+      ...(headerEmail ? [{ email: headerEmail }] : []),
+    ];
+
+    if (mongoose.Types.ObjectId.isValid(tokenUserId)) {
+      lookup.unshift({ _id: tokenUserId });
+    }
+
+    const user = await User.findOne({ $or: lookup });
+
     if (!user) {
       return res.status(401).json({
         message: "Invalid token user",

@@ -52,7 +52,10 @@ services:
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_DOCTOR:-mongodb://mongodb:27017/doctor-db}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+      - PAYMENT_SERVICE_URL=http://payment-service:5004
       - PRESCRIPTION_SERVICE_URL=http://prescription-service:5005
+      - PATIENT_SERVICE_URL=http://patient-service:5001
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
     depends_on:
       - mongodb
@@ -74,6 +77,8 @@ services:
       - MONGO_URI=${MONGO_URI_PATIENT:-mongodb://mongodb:27017/patient-db}
       - JWT_SECRET=${JWT_SECRET:-primehealth_dev_secret}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+      - DOCTOR_SERVICE_URL=http://doctor-service:5002
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
     depends_on:
       - mongodb
@@ -95,10 +100,12 @@ services:
       - MONGO_URI=${MONGO_URI_APPOINTMENT:-mongodb://mongodb:27017/appointment-db}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - DOCTOR_SERVICE_URL=http://doctor-service:5002
+      - PATIENT_SERVICE_URL=http://patient-service:5001
       - PAYMENT_SERVICE_URL=http://payment-service:5004
     depends_on:
       - mongodb
       - doctor-service
+      - patient-service
     networks:
       - primehealth-net
     restart: unless-stopped
@@ -117,6 +124,12 @@ services:
       - MONGO_URI=${MONGO_URI_PAYMENT:-mongodb://mongodb:27017/payment-db}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
+      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-PAYHERE}
+      - PAYHERE_USE_SANDBOX=${PAYHERE_USE_SANDBOX:-true}
+      - PAYHERE_MERCHANT_ID=${PAYHERE_MERCHANT_ID:-}
+      - PAYHERE_MERCHANT_SECRET=${PAYHERE_MERCHANT_SECRET:-}
+      - PAYHERE_NOTIFY_URL=${PAYHERE_NOTIFY_URL:-http://localhost:5004/api/payments/payhere/notify}
+      - PAYHERE_FRONTEND_BASE_URL=${PAYHERE_FRONTEND_BASE_URL:-http://localhost:3000}
     depends_on:
       - mongodb
       - appointment-service

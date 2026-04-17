@@ -1,4 +1,26 @@
 const appointmentService = require('../services/appointmentService');
+const { fetchDoctorById } = require('../services/doctorServiceClient');
+
+async function resolveDoctorIdentifiersForRequest(user) {
+  const identifiers = new Set();
+
+  if (user?.id) identifiers.add(String(user.id));
+  if (user?.uniqueId) identifiers.add(String(user.uniqueId));
+
+  const lookups = [user?.id, user?.email].filter(Boolean);
+  for (const lookup of lookups) {
+    try {
+      const doctor = await fetchDoctorById(String(lookup));
+      if (doctor?._id) identifiers.add(String(doctor._id));
+      if (doctor?.externalRef) identifiers.add(String(doctor.externalRef));
+      if (doctor?.uniqueId) identifiers.add(String(doctor.uniqueId));
+    } catch (_error) {
+      // Best effort only; fallback is direct header identifiers.
+    }
+  }
+
+  return [...identifiers].filter(Boolean);
+}
 
 class AppointmentController {
   // POST /api/appointments
@@ -6,12 +28,14 @@ class AppointmentController {
     try {
       const appointment = await appointmentService.createAppointment({
         patientId: req.user ? req.user.id : req.body.patientId,
+        patientName: req.user ? req.user.fullName : req.body.patientName,
         doctorId: req.body.doctorId,
         doctorName: req.body.doctorName,
         specialty: req.body.specialty,
         appointmentDate: req.body.appointmentDate,
         startTime: req.body.startTime,
         endTime: req.body.endTime,
+        mode: req.body.mode,
         reason: req.body.reason,
         consultationFee: req.body.consultationFee
       });
@@ -39,7 +63,12 @@ class AppointmentController {
 
       // Respect user roles implicitly
       if (req.user && req.user.role === 'DOCTOR') {
-        filters.doctorId = req.user.id;
+        const doctorIdentifiers = await resolveDoctorIdentifiersForRequest(req.user);
+        if (doctorIdentifiers.length) {
+          filters.doctorId = { $in: doctorIdentifiers };
+        } else {
+          filters.doctorId = req.user.id;
+        }
       } else if (req.user && req.user.role === 'PATIENT') {
         filters.patientId = req.user.id;
       }
@@ -95,8 +124,15 @@ class AppointmentController {
       if (req.user && req.user.role === 'PATIENT' && appointment.patientId !== req.user.id) {
         return res.status(403).json({ success: false, message: 'Forbidden' });
       }
-      if (req.user && req.user.role === 'DOCTOR' && appointment.doctorId !== req.user.id) {
-        return res.status(403).json({ success: false, message: 'Forbidden' });
+      if (req.user && req.user.role === 'DOCTOR') {
+        const doctorIdentifiers = await resolveDoctorIdentifiersForRequest(req.user);
+        const canAccess = doctorIdentifiers.length
+          ? doctorIdentifiers.includes(String(appointment.doctorId))
+          : String(appointment.doctorId) === String(req.user.id);
+
+        if (!canAccess) {
+          return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
       }
 
       res.status(200).json({

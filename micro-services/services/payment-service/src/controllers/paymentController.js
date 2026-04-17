@@ -6,19 +6,35 @@ class PaymentController {
     try {
       const payment = await paymentService.initiatePayment({
         appointmentId: req.body.appointmentId,
-        patientId: req.user ? req.user.id : req.body.patientId,
+        patientId: req.user?.id || req.body.patientId,
         doctorId: req.body.doctorId,
         amount: req.body.amount,
-        method: req.body.method || req.body.paymentMethod
+        provider: req.body.provider,
+        method: req.body.method || req.body.paymentMethod,
+        customer: req.body.customer || {},
+        returnUrl: req.body.returnUrl,
+        cancelUrl: req.body.cancelUrl
       });
 
       res.status(201).json({
         success: true,
-        message: 'Payment initiated successfully. Proceed to confirm.',
+        message: payment?.checkout?.gateway === 'PAYHERE'
+          ? 'Payment initiated successfully. Redirect to PayHere checkout.'
+          : 'Payment initiated successfully. Proceed to confirm.',
         data: payment
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  // POST /api/payments/payhere/notify
+  async handlePayHereNotify(req, res, next) {
+    try {
+      await paymentService.handlePayHereNotification(req.body || {});
+      return res.status(200).send('OK');
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -44,11 +60,14 @@ class PaymentController {
       const filters = {};
       if (req.query.appointmentId) filters.appointmentId = req.query.appointmentId;
       if (req.query.patientId) filters.patientId = req.query.patientId;
+      if (req.query.doctorId) filters.doctorId = req.query.doctorId;
       if (req.query.status) filters.status = req.query.status;
 
       // Restrict access for PATIENT role
       if (req.user && req.user.role === 'PATIENT') {
         filters.patientId = req.user.id;
+      } else if (req.user && req.user.role === 'DOCTOR') {
+        filters.doctorId = req.user.id;
       }
 
       const payments = await paymentService.getPayments(filters);
@@ -62,6 +81,25 @@ class PaymentController {
     }
   }
 
+  // GET /api/payments/doctor/:doctorId/summary
+  async getDoctorEarningsSummary(req, res, next) {
+    try {
+      if (req.user?.role === 'DOCTOR' && String(req.user.id) !== String(req.params.doctorId)) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
+
+      const summary = await paymentService.getDoctorEarningsSummary(req.params.doctorId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Doctor earnings summary retrieved successfully',
+        data: summary
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // GET /api/payments/:id
   async getPaymentById(req, res, next) {
     try {
@@ -69,6 +107,9 @@ class PaymentController {
 
       // Authorization check
       if (req.user && req.user.role === 'PATIENT' && payment.patientId !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
+      if (req.user && req.user.role === 'DOCTOR' && payment.doctorId !== req.user.id) {
         return res.status(403).json({ success: false, message: 'Forbidden' });
       }
 
@@ -119,6 +160,9 @@ class PaymentController {
 
       // Authorization check
       if (req.user && req.user.role === 'PATIENT' && payment.patientId !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
+      if (req.user && req.user.role === 'DOCTOR' && payment.doctorId !== req.user.id) {
         return res.status(403).json({ success: false, message: 'Forbidden' });
       }
 

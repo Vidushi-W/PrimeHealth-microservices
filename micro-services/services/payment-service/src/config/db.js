@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const logger = require('./logger');
 
 async function connectDB() {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/primehealth_payment';
+  const mongoUri = process.env.MONGO_URI;
   
   if (!mongoUri) {
     throw new Error('MONGO_URI is required');

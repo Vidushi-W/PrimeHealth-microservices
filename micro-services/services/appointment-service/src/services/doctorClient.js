@@ -26,7 +26,7 @@ class DoctorClient {
       // In a real application, we would check if the doctor's schedule allows this
       // and if there are no overlapping appointments.
       // For this assignment, we will do a basic check based on their general availability.
-      if (!doctor.isAvailable) {
+      if (doctor.isAvailable === false) {
         return false;
       }
       

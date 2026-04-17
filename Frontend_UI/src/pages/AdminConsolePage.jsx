@@ -27,6 +27,7 @@ export default function AdminConsolePage({ auth }) {
   const [healthyServices, setHealthyServices] = useState(0);
   const [doctorSearch, setDoctorSearch] = useState('');
   const [patientSearch, setPatientSearch] = useState('');
+  const [transactionSearch, setTransactionSearch] = useState('');
   const location = useLocation();
 
   useEffect(() => {
@@ -125,6 +126,16 @@ export default function AdminConsolePage({ auth }) {
     return `${Math.round((successCount / transactions.length) * 100)}%`;
   }, [transactions]);
 
+  const filteredTransactions = useMemo(() => {
+    const term = transactionSearch.trim().toLowerCase();
+    if (!term) return transactions;
+
+    return transactions.filter((item) => {
+      const values = [item.patientId, item.patientEmail, item.status, item.amount].filter(Boolean).map(String).map((value) => value.toLowerCase());
+      return values.some((value) => value.includes(term));
+    });
+  }, [transactions, transactionSearch]);
+
   const openAppointments = Number(appointmentAnalytics?.byStatus?.PENDING || 0) + Number(appointmentAnalytics?.byStatus?.CONFIRMED || 0);
   const totalDoctors = summary?.totalDoctors || doctors.length;
   const totalPatients = summary?.totalPatients || patients.length;
@@ -153,6 +164,19 @@ export default function AdminConsolePage({ auth }) {
       await loadAdminData();
     } catch (requestError) {
       actionError(requestError, 'Failed to deactivate doctor');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const handleActivateDoctor = async (doctorId) => {
+    try {
+      setBusyId(`activate-${doctorId}`);
+      await updateDoctorAccount(auth.token, doctorId, { status: 'active' });
+      toast.success('Doctor activated');
+      await loadAdminData();
+    } catch (requestError) {
+      actionError(requestError, 'Failed to activate doctor');
     } finally {
       setBusyId('');
     }
@@ -297,7 +321,7 @@ export default function AdminConsolePage({ auth }) {
                                 tone="primary"
                                 label="Activate doctor"
                                 title="Activate doctor"
-                                onClick={() => updateDoctorAccount(auth.token, doctorId, { status: 'active' }).then(loadAdminData)}
+                                onClick={() => handleActivateDoctor(doctorId)}
                                 disabled={busyId === `activate-${doctorId}`}
                               >
                                 <RefreshIcon />
@@ -450,9 +474,17 @@ export default function AdminConsolePage({ auth }) {
           </div>
 
           <div className="panel p-6">
-            <h2 className="text-2xl font-black tracking-tight text-slate-900">Latest transactions</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-2xl font-black tracking-tight text-slate-900">Latest transactions</h2>
+              <input
+                className="input max-w-xs"
+                placeholder="Search transactions"
+                value={transactionSearch}
+                onChange={(event) => setTransactionSearch(event.target.value)}
+              />
+            </div>
             <div className="mt-4 space-y-2">
-              {transactions.slice(0, 12).map((item, index) => (
+              {filteredTransactions.slice(0, 12).map((item, index) => (
                 <div key={item._id || index} className="rounded-xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span>{item.patientId || item.patientEmail || 'Unknown payer'}</span>
@@ -461,7 +493,7 @@ export default function AdminConsolePage({ auth }) {
                   <p className="mt-1 text-slate-500">{item.status || 'recorded'} · {new Date(item.createdAt || Date.now()).toLocaleString()}</p>
                 </div>
               ))}
-              {!transactions.length ? <div className="text-sm text-slate-500">No transactions available.</div> : null}
+              {!filteredTransactions.length ? <div className="text-sm text-slate-500">No transactions available.</div> : null}
             </div>
           </div>
         </section>

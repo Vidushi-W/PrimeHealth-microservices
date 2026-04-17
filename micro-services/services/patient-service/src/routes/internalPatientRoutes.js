@@ -2,6 +2,7 @@ const express = require("express");
 const { getDoctorPatientSummary } = require("../controllers/patientProfileController");
 const bcrypt = require("bcrypt");
 const User = require("../models/User");
+const PatientAppointment = require("../models/PatientAppointment");
 
 const router = express.Router();
 
@@ -101,6 +102,65 @@ router.post("/users/sync", validateInternalToken, async (req, res) => {
 	} catch (error) {
 		return res.status(500).json({ success: false, message: "Failed to sync user", error: error.message });
 	}
+});
+
+router.patch("/appointments/:externalAppointmentId/sync-status", validateInternalToken, async (req, res) => {
+  try {
+    const externalAppointmentId = String(req.params.externalAppointmentId || "").trim();
+    if (!externalAppointmentId) {
+      return res.status(400).json({ success: false, message: "externalAppointmentId is required" });
+    }
+
+    const updates = {};
+    if (req.body?.status) {
+      const status = String(req.body.status || "").trim().toLowerCase();
+      const statusMap = {
+        pending: "pending_payment",
+        confirmed: "confirmed",
+        completed: "completed",
+        cancelled: "cancelled"
+      };
+      updates.status = statusMap[status] || status;
+    }
+
+    if (req.body?.paymentStatus) {
+      const paymentStatus = String(req.body.paymentStatus || "").trim().toLowerCase();
+      const paymentMap = {
+        unpaid: "pending",
+        pending: "pending",
+        paid: "paid",
+        failed: "failed",
+        refunded: "refunded"
+      };
+      updates.paymentStatus = paymentMap[paymentStatus] || paymentStatus;
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ success: false, message: "No sync fields provided" });
+    }
+
+    const appointment = await PatientAppointment.findOneAndUpdate(
+      { externalAppointmentId },
+      updates,
+      { new: true }
+    );
+
+    if (!appointment) {
+      return res.status(404).json({ success: false, message: "Patient appointment not found for external appointment id" });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: appointment._id,
+        externalAppointmentId: appointment.externalAppointmentId,
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to sync appointment status", error: error.message });
+  }
 });
 
 module.exports = router;

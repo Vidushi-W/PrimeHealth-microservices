@@ -1,6 +1,9 @@
 const User = require("../models/User");
 const DoctorProfile = require("../models/DoctorProfile");
+const axios = require("axios");
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MIN_BOOKABLE_SLOTS = 10;
+const SLOT_DURATION_MINUTES = 15;
 
 function normalizeValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -77,6 +80,7 @@ function buildDoctorDirectoryRecord(user, profile) {
 
   return {
     id: String(user._id),
+    email: user.email || '',
     fullName: user.fullName,
     specialization: profile.specialization || "General Medicine",
     hospitalOrClinic: profile.hospitalOrClinic || "PrimeHealth Care Network",
@@ -90,7 +94,48 @@ function buildDoctorDirectoryRecord(user, profile) {
   };
 }
 
+function getDoctorServiceBaseUrl() {
+  return (process.env.DOCTOR_SERVICE_URL || "http://localhost:5002").replace(/\/+$/, "");
+}
+
+function mapDoctorServiceDoctor(doctor) {
+  const availability = (doctor.availability || []).flatMap((dayItem) =>
+    (dayItem.slots || []).map((slot) => ({
+      day: dayItem.day,
+      startTime: slot.start,
+      endTime: slot.end,
+      mode: "online",
+      label: formatSlotLabel(slot.start, slot.end),
+    }))
+  );
+
+  return {
+    id: String(doctor._id || doctor.id || ""),
+    email: doctor.email || "",
+    fullName: doctor.name || doctor.fullName || "Doctor",
+    specialization: doctor.specialization || "General Medicine",
+    hospitalOrClinic: doctor.hospitalOrClinic || "PrimeHealth Care Network",
+    consultationFee: doctor.consultationFee || 0,
+    profileImage: doctor.profilePicture || "",
+    rating: doctor.ratingAverage || null,
+    supportedModes: ["online", "physical"],
+    availability,
+    yearsOfExperience: Number(doctor.experience || 0),
+    licenseNumber: doctor.licenseNumber || "",
+  };
+}
+
 async function getRegisteredDoctors() {
+  try {
+    const { data } = await axios.get(`${getDoctorServiceBaseUrl()}/api/doctors`);
+    const payload = Array.isArray(data?.data) ? data.data : [];
+    if (payload.length) {
+      return payload.map(mapDoctorServiceDoctor);
+    }
+  } catch (_error) {
+    // Fall back to local doctor profiles if doctor-service is unavailable.
+  }
+
   const profiles = await DoctorProfile.find({}).lean();
   if (!profiles.length) {
     return [];
@@ -118,22 +163,8 @@ async function getRegisteredDoctors() {
 }
 
 async function getDoctorById(doctorId) {
-  const user = await User.findOne({
-    _id: doctorId,
-    role: "doctor",
-    isActive: true,
-  }).lean();
-
-  if (!user) {
-    return null;
-  }
-
-  const profile = await DoctorProfile.findOne({ userId: user._id }).lean();
-  if (!profile) {
-    return null;
-  }
-
-  return buildDoctorDirectoryRecord(user, profile);
+  const allDoctors = await getRegisteredDoctors();
+  return allDoctors.find((item) => String(item.id) === String(doctorId) || String(item.email || '').toLowerCase() === String(doctorId || '').toLowerCase()) || null;
 }
 
 function buildDoctorCard(doctor) {
@@ -141,6 +172,7 @@ function buildDoctorCard(doctor) {
 
   return {
     id: doctor.id,
+    email: doctor.email,
     fullName: doctor.fullName,
     specialization: doctor.specialization,
     hospitalOrClinic: doctor.hospitalOrClinic,
@@ -230,10 +262,14 @@ async function getDoctorSlots(doctorId, dateText, mode) {
         return [];
       }
 
+      // Keep at least 10 slot options per doctor/day/mode for smoother booking UX.
+      const minimumWindowEnd = startMinutes + (MIN_BOOKABLE_SLOTS * SLOT_DURATION_MINUTES);
+      const effectiveEndMinutes = Math.max(endMinutes, minimumWindowEnd);
+
       const generatedSlots = [];
-      for (let cursor = startMinutes; cursor + 15 <= endMinutes; cursor += 15) {
+      for (let cursor = startMinutes; cursor + SLOT_DURATION_MINUTES <= effectiveEndMinutes; cursor += SLOT_DURATION_MINUTES) {
         const slotStart = minutesToTime(cursor);
-        const slotEnd = minutesToTime(cursor + 15);
+        const slotEnd = minutesToTime(cursor + SLOT_DURATION_MINUTES);
         generatedSlots.push({
           value: formatSlotLabel(slotStart, slotEnd),
           label: formatSlotLabel(slotStart, slotEnd),
@@ -251,7 +287,37 @@ async function getDoctorSlots(doctorId, dateText, mode) {
     uniqueSlots.set(slot.value, slot);
   }
 
-  return Array.from(uniqueSlots.values());
+  const normalized = Array.from(uniqueSlots.values());
+
+  if (normalized.length >= MIN_BOOKABLE_SLOTS || normalized.length === 0) {
+    return normalized;
+  }
+
+  const lastSlot = normalized[normalized.length - 1];
+  let cursor = parseTimeToMinutes(lastSlot?.endTime || "");
+  if (cursor === null) {
+    return normalized;
+  }
+
+  while (normalized.length < MIN_BOOKABLE_SLOTS) {
+    const slotStart = minutesToTime(cursor);
+    const slotEnd = minutesToTime(cursor + SLOT_DURATION_MINUTES);
+    const value = formatSlotLabel(slotStart, slotEnd);
+    if (!uniqueSlots.has(value)) {
+      const slot = {
+        value,
+        label: value,
+        startTime: slotStart,
+        endTime: slotEnd,
+        disabled: false,
+      };
+      uniqueSlots.set(value, slot);
+      normalized.push(slot);
+    }
+    cursor += SLOT_DURATION_MINUTES;
+  }
+
+  return normalized;
 }
 
 async function getDoctorBookingDetails(doctorId) {

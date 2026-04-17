@@ -1,15 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  fetchDoctorEarnings,
+  fetchDoctorPatientReports,
+  fetchDoctorReviews,
+  fetchDoctorUpcomingAppointments,
+  getDoctors
+} from '../services/doctorService';
+import {
   fetchDoctorAppointments,
   fetchDoctorPrescriptions,
   fetchTelemedicineSessions
 } from '../services/platformApi';
+import { resolveCurrentDoctor } from '../utils/currentDoctor';
+
+function formatDate(value) {
+  if (!value) return 'TBD';
+  return new Date(value).toLocaleDateString();
+}
+
+function resolvePatientDisplayName(item) {
+  return item?.patientName || item?.patient?.name || item?.patient?.fullName || 'Unknown patient';
+}
 
 export default function DoctorWorkspacePage({ auth }) {
   const [appointments, setAppointments] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [doctor, setDoctor] = useState(null);
+  const [upcomingAppointments, setUpcomingAppointments] = useState([]);
+  const [patientReports, setPatientReports] = useState([]);
+  const [reviewSummary, setReviewSummary] = useState({ averageRating: 0, totalRatings: 0, reviews: [] });
+  const [earnings, setEarnings] = useState({
+    totalEarnings: 0,
+    currentMonthEarnings: 0,
+    completedPaidConsultations: 0,
+    monthlyHistory: []
+  });
 
   const doctorKeys = useMemo(
     () =>
@@ -29,18 +56,47 @@ export default function DoctorWorkspacePage({ auth }) {
     let mounted = true;
 
     const load = async () => {
-      const doctorIdForPrescription = auth?.user?.id || auth?.user?._id || auth?.user?.userId;
-
-      const [appointmentList, sessionList, prescriptionList] = await Promise.all([
+      const [doctorList, appointmentList, sessionList] = await Promise.all([
+        getDoctors().catch(() => []),
         fetchDoctorAppointments(auth).catch(() => []),
-        fetchTelemedicineSessions(auth.token).catch(() => []),
-        fetchDoctorPrescriptions(auth.token, doctorIdForPrescription).catch(() => [])
+        fetchTelemedicineSessions(auth.token).catch(() => [])
       ]);
 
       if (!mounted) return;
+
+      const resolvedDoctor = resolveCurrentDoctor(Array.isArray(doctorList) ? doctorList : []).doctor;
+      setDoctor(resolvedDoctor);
       setAppointments(Array.isArray(appointmentList) ? appointmentList : []);
       setSessions(Array.isArray(sessionList) ? sessionList : []);
+
+      const doctorIdForPrescription =
+        resolvedDoctor?._id || auth?.user?.id || auth?.user?._id || auth?.user?.userId;
+      const prescriptionList = await fetchDoctorPrescriptions(auth.token, doctorIdForPrescription).catch(() => []);
+
+      if (!mounted) return;
       setPrescriptions(Array.isArray(prescriptionList) ? prescriptionList : []);
+
+      if (!doctorIdForPrescription) {
+        return;
+      }
+
+      const [upcoming, reports, reviews, earningsSummary] = await Promise.all([
+        fetchDoctorUpcomingAppointments(doctorIdForPrescription, 6).catch(() => []),
+        fetchDoctorPatientReports(doctorIdForPrescription, 8).catch(() => []),
+        fetchDoctorReviews(doctorIdForPrescription).catch(() => ({ averageRating: 0, totalRatings: 0, reviews: [] })),
+        fetchDoctorEarnings(doctorIdForPrescription).catch(() => ({
+          totalEarnings: 0,
+          currentMonthEarnings: 0,
+          completedPaidConsultations: 0,
+          monthlyHistory: []
+        }))
+      ]);
+
+      if (!mounted) return;
+      setUpcomingAppointments(Array.isArray(upcoming) ? upcoming : []);
+      setPatientReports(Array.isArray(reports) ? reports : []);
+      setReviewSummary(reviews);
+      setEarnings(earningsSummary);
     };
 
     load();
@@ -80,15 +136,16 @@ export default function DoctorWorkspacePage({ auth }) {
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.35em] text-brand-600">Doctor workspace</p>
             <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
-              Welcome Dr. {auth.user?.fullName || auth.user?.name || 'Doctor'}
+              Welcome Dr. {doctor?.name || auth.user?.fullName || auth.user?.name || 'Doctor'}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-              Manage availability, review appointment load, and start virtual consultations with a patient-centric workflow.
+              Manage profile, availability, appointments, patient reports, ratings, and revenue in one place.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link className="button-primary" to="/doctors">Doctor directory tools</Link>
-              <Link className="button-secondary" to="/telemedicine">Open telemedicine</Link>
+              <Link className="button-primary" to="/doctor/profile">Edit profile</Link>
+              <Link className="button-secondary" to="/doctors">Availability management</Link>
+              <Link className="button-secondary" to="/doctor/earnings">Earnings</Link>
             </div>
           </div>
 
@@ -100,37 +157,89 @@ export default function DoctorWorkspacePage({ auth }) {
         </div>
       </section>
 
-      <section className="grid gap-5 md:grid-cols-3">
-        <ActionCard
-          title="Manage profile"
-          description="Update specialization, experience, and credentials."
-          action="Open profile"
-          to="/doctor/profile"
-        />
-        <ActionCard
-          title="Update availability"
-          description="Generate slots and manage status for patient bookings."
-          action="Open scheduler"
-          to="/doctors"
-        />
-        <ActionCard
-          title="Start telemedicine"
-          description="Launch secure Jitsi sessions and live patient chat."
-          action="Open sessions"
-          to="/telemedicine"
-        />
+      <section className="grid gap-5 lg:grid-cols-2">
+        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-bold text-slate-900">Doctor profile summary</h2>
+            <Link className="text-sm font-semibold text-brand-700" to="/doctor/profile">Edit profile</Link>
+          </div>
+          <div className="mt-4 space-y-2 text-sm text-slate-700">
+            <p><strong>Name:</strong> {doctor?.name || '-'}</p>
+            <p><strong>Email:</strong> {doctor?.email || '-'}</p>
+            <p><strong>Phone:</strong> {doctor?.phoneNumber || '-'}</p>
+            <p><strong>Specialization:</strong> {doctor?.specialization || '-'}</p>
+            <p><strong>Qualifications:</strong> {doctor?.qualifications || '-'}</p>
+            <p><strong>Experience:</strong> {doctor?.experience || 0} years</p>
+            <p><strong>Hospital / Clinic:</strong> {doctor?.hospitalOrClinic || '-'}</p>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-bold text-slate-900">Ratings and reviews</h2>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              {Number(reviewSummary.averageRating || 0).toFixed(1)} / 5 ({reviewSummary.totalRatings || 0})
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {(reviewSummary.reviews || []).slice(0, 3).map((item) => (
+              <article key={item._id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+                <p className="text-sm font-semibold text-slate-900">{resolvePatientDisplayName(item)}</p>
+                <p className="text-xs text-slate-500">Rating: {item.rating}/5</p>
+                <p className="mt-1 text-sm text-slate-600">{item.review || 'No comment provided.'}</p>
+              </article>
+            ))}
+            {!reviewSummary.reviews?.length ? (
+              <p className="text-sm text-slate-500">No ratings yet.</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+          <h2 className="text-xl font-bold text-slate-900">Upcoming appointments</h2>
+          <div className="mt-4 space-y-3">
+            {upcomingAppointments.length ? upcomingAppointments.map((item) => (
+              <article key={item.id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+                <p className="text-sm font-semibold text-slate-900">{resolvePatientDisplayName(item)}</p>
+                <p className="text-xs text-slate-500">{formatDate(item.appointmentDate)} • {item.appointmentTime || 'TBD'}</p>
+                <p className="text-xs text-slate-500">Status: {item.status || 'PENDING'}</p>
+                {item.reason ? <p className="mt-1 text-sm text-slate-600">{item.reason}</p> : null}
+              </article>
+            )) : <p className="text-sm text-slate-500">No upcoming appointments found.</p>}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+          <h2 className="text-xl font-bold text-slate-900">Patient reports</h2>
+          <div className="mt-4 space-y-3">
+            {patientReports.length ? patientReports.map((item, index) => (
+              <article key={`${item.reportId || index}`} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+                <p className="text-sm font-semibold text-slate-900">{item.patientName || item.patientId}</p>
+                <p className="text-xs text-slate-500">{item.fileName || 'Report file'} • {item.reportType || 'General'}</p>
+                <p className="text-xs text-slate-500">Uploaded: {formatDate(item.uploadedAt)}</p>
+                {item.fileUrl ? (
+                  <a className="mt-1 inline-block text-sm font-semibold text-brand-700" href={item.fileUrl} target="_blank" rel="noreferrer">View report</a>
+                ) : null}
+              </article>
+            )) : <p className="text-sm text-slate-500">No patient reports found.</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xl font-bold text-slate-900">Earnings / Revenue</h2>
+          <Link className="button-secondary" to="/doctor/earnings">Open earnings page</Link>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <DoctorMetric label="Total earnings" value={`LKR ${Number(earnings.totalEarnings || 0).toFixed(2)}`} />
+          <DoctorMetric label="Current month" value={`LKR ${Number(earnings.currentMonthEarnings || 0).toFixed(2)}`} />
+          <DoctorMetric label="Paid consultations" value={String(earnings.completedPaidConsultations || 0)} />
+        </div>
       </section>
     </div>
-  );
-}
-
-function ActionCard({ title, description, action, to }) {
-  return (
-    <Link to={to} className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft transition hover:-translate-y-1 hover:border-brand-200 hover:bg-white">
-      <p className="text-lg font-bold text-slate-900">{title}</p>
-      <p className="mt-2 text-sm text-slate-500">{description}</p>
-      <p className="mt-5 text-sm font-semibold text-brand-700">{action} →</p>
-    </Link>
   );
 }
 

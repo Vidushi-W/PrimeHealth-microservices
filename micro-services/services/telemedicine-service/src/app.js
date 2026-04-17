@@ -3,7 +3,6 @@ const http = require('http');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
 const env = require('./config/env');
 const { connectDatabase, isDatabaseReady } = require('./config/db');
 const sessionRoutes = require('./routes/sessions');
@@ -64,65 +63,6 @@ app.get('/', (req, res) => {
 	res.json({
 		success: true,
 		message: 'PrimeHealth Telemedicine Service is running.'
-	});
-});
-
-app.post('/auth/login', (req, res) => {
-	const email = String(req.body?.email || '').trim().toLowerCase();
-	const password = String(req.body?.password || '');
-
-	if (!env.jwtSecret) {
-		return res.status(503).json({
-			success: false,
-			message: 'Service configuration missing: JWT_SECRET is not set.'
-		});
-	}
-
-	const demoUsers = {
-		'patient@primehealth.com': {
-			password: 'password123',
-			userId: 'demo-patient-1',
-			name: 'Demo Patient',
-			role: 'patient'
-		},
-		'doctor@primehealth.com': {
-			password: 'password123',
-			userId: 'demo-doctor-1',
-			name: 'Demo Doctor',
-			role: 'doctor'
-		}
-	};
-
-	const user = demoUsers[email];
-	if (!user || user.password !== password) {
-		return res.status(401).json({
-			success: false,
-			message: 'Invalid email or password.'
-		});
-	}
-
-	const token = jwt.sign(
-		{
-			userId: user.userId,
-			role: user.role,
-			email,
-			name: user.name
-		},
-		env.jwtSecret,
-		{ expiresIn: env.jwtExpiresIn || '7d' }
-	);
-
-	return res.json({
-		success: true,
-		data: {
-			token,
-			user: {
-				userId: user.userId,
-				role: user.role,
-				email,
-				name: user.name
-			}
-		}
 	});
 });
 

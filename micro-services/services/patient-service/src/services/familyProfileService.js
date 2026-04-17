@@ -70,12 +70,20 @@ async function getPrimaryProfile(userId) {
     return primaryProfile;
   }
 
+  const owner = await User.findById(userId).select("fullName");
+
   const legacyProfile = await PatientProfile.findOne({ userId }).sort({ createdAt: 1 });
   if (!legacyProfile) {
-    return null;
+    const createdProfile = await PatientProfile.create({
+      userId,
+      fullName: owner?.fullName || "",
+      relation: "self",
+      isPrimary: true,
+    });
+
+    return createdProfile;
   }
 
-  const owner = await User.findById(userId).select("fullName");
   if (!legacyProfile.fullName && owner?.fullName) {
     legacyProfile.fullName = owner.fullName;
   }

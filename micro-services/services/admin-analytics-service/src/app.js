@@ -132,6 +132,22 @@ const isAuthRoleAllowed = (role) => allowedAuthRoles.has(role);
 
 const getAuthModel = (role) => authRoleConfig[role]?.model || null;
 
+const findExistingAuthUserByEmail = async (email) => {
+    const normalized = normalizeEmail(email);
+
+    if (!normalized) {
+        return null;
+    }
+
+    const [admin, doctor, patient] = await Promise.all([
+        Admin.findOne({ email: normalized }),
+        Doctor.findOne({ email: normalized }),
+        Patient.findOne({ email: normalized })
+    ]);
+
+    return admin || doctor || patient || null;
+};
+
 const parseDuplicateKeyError = (error, entityName) => {
     if (error && error.code === 11000) {
         return `${entityName} with this email already exists.`;
@@ -514,6 +530,12 @@ app.post('/api/auth/register', requireServiceReady, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
         }
 
+        const existingUser = await findExistingAuthUserByEmail(email);
+
+        if (existingUser) {
+            return res.status(409).json({ success: false, message: 'User with this email already exists.' });
+        }
+
         if ((role === 'doctor' || role === 'patient') && !name) {
             return res.status(400).json({ success: false, message: 'Name is required for doctor and patient registration.' });
         }
@@ -577,34 +599,42 @@ app.post('/api/auth/register', requireServiceReady, async (req, res) => {
 
 app.post('/api/auth/login', requireServiceReady, async (req, res) => {
     try {
-        const { role, email, password } = req.body;
-
-        if (!role || !isAuthRoleAllowed(role)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid role. Allowed values: admin, doctor, patient.'
-            });
-        }
+        const { email, password } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Email and password are required.' });
         }
 
-        const model = getAuthModel(role);
-        const user = await model.findOne({ email: normalizeEmail(email) });
+        const normalizedEmail = normalizeEmail(email);
+        const roleOrder = [
+            { role: 'admin', model: Admin },
+            { role: 'doctor', model: Doctor },
+            { role: 'patient', model: Patient }
+        ];
 
-        if (!user || !user.passwordHash) {
+        let matchedRole = '';
+        let user = null;
+
+        for (const candidate of roleOrder) {
+            const candidateUser = await candidate.model.findOne({ email: normalizedEmail });
+
+            if (candidateUser?.passwordHash) {
+                const isPasswordValid = await bcrypt.compare(password, candidateUser.passwordHash);
+
+                if (isPasswordValid) {
+                    matchedRole = candidate.role;
+                    user = candidateUser;
+                    break;
+                }
+            }
+        }
+
+        if (!user) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         if (!['active', 'verified'].includes(user.status)) {
             return res.status(403).json({ success: false, message: `Account is ${user.status}. Access denied.` });
-        }
-
-        const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-
-        if (!isPasswordValid) {
-            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         const now = new Date();
@@ -614,14 +644,19 @@ app.post('/api/auth/login', requireServiceReady, async (req, res) => {
         user.lastLoginUserAgent = req.headers['user-agent'] || '';
         await user.save();
 
+        let loginSync = null;
+        if (matchedRole === 'patient' || matchedRole === 'doctor') {
+            loginSync = await syncUserToPatientService(matchedRole, user);
+        }
+
         const tokenPayload = {
             id: user._id.toString(),
-            roleType: role,
-            role: role === 'admin' ? user.role || 'admin' : role
+            roleType: matchedRole,
+            role: matchedRole === 'admin' ? user.role || 'admin' : matchedRole
         };
         const token = issueAuthToken(tokenPayload);
 
-        if (role === 'admin') {
+        if (matchedRole === 'admin') {
             await logAuditForActor(req, user, {
                 action: 'admin.login',
                 targetType: 'admin',
@@ -633,8 +668,9 @@ app.post('/api/auth/login', requireServiceReady, async (req, res) => {
         return res.json({
             success: true,
             token,
-            role,
-            user: role === 'admin' ? toSafeAdmin(user) : toSafeUser(role, user)
+            role: matchedRole,
+            user: matchedRole === 'admin' ? toSafeAdmin(user) : toSafeUser(matchedRole, user),
+            sync: loginSync
         });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Login failed', error: error.message });

@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createAppointment, getBookableDoctors, getDoctorSlots, getPatientReports } from '../services/patientApi';
+import {
+  downloadPaymentInvoice,
+  fetchPaymentById,
+  fetchPaymentByOrderId,
+  initiatePayment,
+  submitHostedCheckout
+} from '../services/platformApi';
 import './Dashboard.css';
 
 const initialFilters = {
@@ -14,8 +21,10 @@ const initialBookingForm = {
   appointmentDate: '',
   timeSlot: '',
   mode: 'online',
+  paymentOption: 'ONLINE_AFTER',
   reason: '',
 };
+const MIN_VISIBLE_SLOTS = 10;
 
 function formatDateLabel(dateText) {
   const parsed = new Date(`${dateText}T00:00:00Z`);
@@ -117,7 +126,7 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
   const weekdayName = getWeekdayName(dateText);
   const matchingAvailability = doctor.availability.filter((item) => item.day === weekdayName && item.mode === mode);
 
-  return matchingAvailability.flatMap((item) => {
+  const slots = matchingAvailability.flatMap((item) => {
     const startMinutes = parseTimeToMinutes(item.startTime);
     const endMinutes = parseTimeToMinutes(item.endTime);
 
@@ -125,8 +134,11 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
       return [];
     }
 
+    const minimumWindowEnd = startMinutes + (MIN_VISIBLE_SLOTS * 15);
+    const effectiveEndMinutes = Math.max(endMinutes, minimumWindowEnd);
+
     const generatedSlots = [];
-    for (let cursor = startMinutes; cursor + 15 <= endMinutes; cursor += 15) {
+    for (let cursor = startMinutes; cursor + 15 <= effectiveEndMinutes; cursor += 15) {
       const slotStart = minutesToTime(cursor);
       const slotEnd = minutesToTime(cursor + 15);
       generatedSlots.push({
@@ -138,6 +150,33 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
 
     return generatedSlots;
   });
+
+  if (slots.length >= MIN_VISIBLE_SLOTS || slots.length === 0) {
+    return slots;
+  }
+
+  const deduped = new Map(slots.map((slot) => [slot.value, slot]));
+  const last = slots[slots.length - 1];
+  let cursor = parseTimeToMinutes(last?.endTime || '');
+  if (cursor === null) {
+    return slots;
+  }
+
+  while (deduped.size < MIN_VISIBLE_SLOTS) {
+    const slotStart = minutesToTime(cursor);
+    const slotEnd = minutesToTime(cursor + 15);
+    const value = formatSlotLabel(slotStart, slotEnd);
+    deduped.set(value, {
+      value,
+      label: value,
+      startTime: slotStart,
+      endTime: slotEnd,
+      disabled: false
+    });
+    cursor += 15;
+  }
+
+  return Array.from(deduped.values());
 }
 
 function BookAppointmentPage({ auth }) {
@@ -158,11 +197,19 @@ function BookAppointmentPage({ auth }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [reservedAppointment, setReservedAppointment] = useState(null);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentState, setPaymentState] = useState('');
+  const [paymentOrderId, setPaymentOrderId] = useState('');
+  const [paymentRecord, setPaymentRecord] = useState(null);
   const bookingSectionRef = useRef(null);
   const availableDateOptions = buildAvailableDateOptions(selectedDoctor, bookingForm.mode);
-  const visibleSlots = slots.length
-    ? slots
-    : buildClientFallbackSlots(selectedDoctor, bookingForm.appointmentDate, bookingForm.mode);
+  const visibleSlots = useMemo(
+    () =>
+      slots.length
+        ? slots
+        : buildClientFallbackSlots(selectedDoctor, bookingForm.appointmentDate, bookingForm.mode),
+    [slots, selectedDoctor, bookingForm.appointmentDate, bookingForm.mode]
+  );
 
   useEffect(() => {
     const specialization = searchParams.get('specialization') || '';
@@ -171,6 +218,38 @@ function BookAppointmentPage({ auth }) {
       specialization,
     }));
   }, [searchParams]);
+
+  useEffect(() => {
+    const returnedOrderId = searchParams.get('order_id') || searchParams.get('orderId') || '';
+    if (!returnedOrderId) {
+      return;
+    }
+
+    let active = true;
+    const syncReturnedPayment = async () => {
+      try {
+        const byOrder = await fetchPaymentByOrderId(auth, returnedOrderId);
+        if (!active || !byOrder) {
+          return;
+        }
+
+        const byId = byOrder?._id ? await fetchPaymentById(auth, byOrder._id).catch(() => byOrder) : byOrder;
+        setPaymentOrderId(returnedOrderId);
+        setPaymentRecord(byId || null);
+        if (String(byOrder.status || '').toUpperCase() === 'SUCCESS') {
+          setPaymentState('paid');
+          setSuccess('Payment completed and appointment confirmed.');
+        }
+      } catch (_error) {
+        // Ignore noisy callback fetch failures and rely on manual refresh actions.
+      }
+    };
+
+    syncReturnedPayment();
+    return () => {
+      active = false;
+    };
+  }, [auth, searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -186,6 +265,32 @@ function BookAppointmentPage({ auth }) {
         }
 
         setDoctors(response.doctors || []);
+
+        const requestedDoctorId = searchParams.get('doctorId');
+        if (requestedDoctorId) {
+          const matchedDoctor = (response.doctors || []).find((doctor) => String(doctor.id) === String(requestedDoctorId));
+          if (matchedDoctor) {
+            const nextMode = matchedDoctor.supportedModes?.[0] || 'online';
+            const nextDateOptions = buildAvailableDateOptions(matchedDoctor, nextMode);
+
+            setSelectedDoctor(matchedDoctor);
+            setBookingForm((current) => ({
+              ...current,
+              mode: nextMode,
+              paymentOption: nextMode === 'physical' ? 'PHYSICAL_ONSITE' : 'ONLINE_AFTER',
+              appointmentDate: nextDateOptions[0]?.value || '',
+              timeSlot: '',
+              reason: '',
+            }));
+            setSlots([]);
+            setReservedAppointment(null);
+            setPaymentState('');
+            setPaymentOrderId('');
+            setPaymentRecord(null);
+            setSuccess('');
+            setError('');
+          }
+        }
       } catch (requestError) {
         if (active) {
           setError(requestError.message);
@@ -202,7 +307,7 @@ function BookAppointmentPage({ auth }) {
     return () => {
       active = false;
     };
-  }, [auth.token, filters]);
+  }, [auth.token, filters, searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -269,12 +374,21 @@ function BookAppointmentPage({ auth }) {
   }, [auth.token, bookingForm.appointmentDate, bookingForm.mode, selectedDoctor]);
 
   useEffect(() => {
-    setBookingForm((current) => ({
-      ...current,
-      timeSlot: current.timeSlot && visibleSlots.some((slot) => slot.value === current.timeSlot && !slot.disabled)
-        ? current.timeSlot
-        : '',
-    }));
+    setBookingForm((current) => {
+      const nextTimeSlot =
+        current.timeSlot && visibleSlots.some((slot) => slot.value === current.timeSlot && !slot.disabled)
+          ? current.timeSlot
+          : '';
+
+      if (current.timeSlot === nextTimeSlot) {
+        return current;
+      }
+
+      return {
+        ...current,
+        timeSlot: nextTimeSlot,
+      };
+    });
   }, [visibleSlots]);
 
   useEffect(() => {
@@ -295,9 +409,16 @@ function BookAppointmentPage({ auth }) {
 
   const handleBookingChange = (event) => {
     const { name, value } = event.target;
+    const nextMode = name === 'mode' ? value : bookingForm.mode;
+    const normalizedPaymentOption = name === 'paymentOption'
+      ? value
+      : nextMode === 'physical'
+        ? 'PHYSICAL_ONSITE'
+        : 'ONLINE_AFTER';
     setBookingForm((current) => ({
       ...current,
       [name]: value,
+      paymentOption: normalizedPaymentOption,
       ...(name === 'mode' ? { timeSlot: '' } : null),
       ...(name === 'appointmentDate' ? { timeSlot: '' } : null),
     }));
@@ -311,12 +432,16 @@ function BookAppointmentPage({ auth }) {
     setBookingForm((current) => ({
       ...current,
       mode: nextMode,
+      paymentOption: nextMode === 'physical' ? 'PHYSICAL_ONSITE' : 'ONLINE_AFTER',
       appointmentDate: nextDateOptions[0]?.value || '',
       timeSlot: '',
       reason: '',
     }));
     setSlots([]);
     setReservedAppointment(null);
+    setPaymentState('');
+    setPaymentOrderId('');
+    setPaymentRecord(null);
     setSuccess('');
     setError('');
   };
@@ -347,9 +472,16 @@ function BookAppointmentPage({ auth }) {
       });
 
       setReservedAppointment(response.appointment);
-      setSuccess(
-        `Appointment reserved successfully with ${response.appointment.doctorName} on ${response.appointment.dateLabel} at ${response.appointment.timeSlot}.`,
-      );
+      setPaymentState('pending');
+      const paymentOption = bookingForm.paymentOption;
+      const payNowSelected = paymentOption === 'ONLINE_NOW' || paymentOption === 'PHYSICAL_ONLINE_NOW';
+      if (payNowSelected) {
+        await handlePayNow(response.appointment);
+      } else if (paymentOption === 'ONLINE_AFTER') {
+        setSuccess(`Online appointment reserved with ${response.appointment.doctorName}. You can pay now from this screen or after consultation from your Appointments tab.`);
+      } else {
+        setSuccess(`Physical appointment reserved with ${response.appointment.doctorName}. You can pay online now or pay on-site at the clinic.`);
+      }
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -363,6 +495,80 @@ function BookAppointmentPage({ auth }) {
       timeSlot: slotValue,
     }));
     setError('');
+  };
+
+  const handlePayNow = async (appointmentOverride = null) => {
+    const targetAppointment = appointmentOverride || reservedAppointment;
+
+    if (!targetAppointment) {
+      setError('Reserve the appointment first, then proceed to payment.');
+      return;
+    }
+
+    try {
+      setPaymentProcessing(true);
+      setError('');
+
+      const appointmentId = targetAppointment.externalAppointmentId || targetAppointment.appointmentId || targetAppointment.id;
+      const patientId = auth?.user?.id || auth?.user?._id || auth?.user?.userId;
+      const doctorId = selectedDoctor?.id || targetAppointment.doctorId;
+      const amount = Number(targetAppointment.fee || selectedDoctor?.consultationFee || 0);
+
+      const initiated = await initiatePayment(auth, {
+        appointmentId,
+        patientId,
+        doctorId,
+        amount,
+        provider: 'PAYHERE',
+        method: 'CREDIT_CARD',
+        customer: {
+          firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
+          lastName: 'Patient',
+          email: auth?.user?.email || 'patient@primehealth.test',
+          phone: auth?.user?.phone || auth?.user?.phoneNumber || '0771234567',
+          address: 'PrimeHealth',
+          city: 'Colombo',
+          country: 'Sri Lanka'
+        },
+        returnUrl: `${window.location.origin}/patient/appointments/book`,
+        cancelUrl: `${window.location.origin}/patient/appointments/book`
+      });
+
+      const orderId = initiated?.orderId;
+      if (!orderId) {
+        throw new Error('Payment order was not created');
+      }
+
+      setPaymentOrderId(orderId);
+
+      if (initiated?.checkout?.gateway === 'PAYHERE') {
+        setPaymentState('pending');
+        submitHostedCheckout(initiated.checkout);
+        return;
+      }
+
+      throw new Error('PayHere checkout payload was not returned. Please check sandbox configuration.');
+    } catch (requestError) {
+      setPaymentState('failed');
+      const serverMessage = requestError?.response?.data?.message || requestError?.response?.data?.error;
+      setError(serverMessage || requestError.message || 'Payment failed. Please try again.');
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
+
+  const handleInvoiceDownload = async () => {
+    if (!paymentRecord?._id) {
+      setError('Invoice is available after successful payment confirmation.');
+      return;
+    }
+
+    try {
+      const invoiceUrl = await downloadPaymentInvoice(auth, paymentRecord._id);
+      window.open(invoiceUrl, '_blank', 'noopener,noreferrer');
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to download invoice');
+    }
   };
 
   return (
@@ -446,7 +652,11 @@ function BookAppointmentPage({ auth }) {
           <div className="section-header">
             <div>
               <h2>Reserve appointment</h2>
-              <p>Pick a date and slot for {selectedDoctor.fullName} before payment.</p>
+              <p>
+                {bookingForm.mode === 'physical'
+                  ? `Pick a date and slot for ${selectedDoctor.fullName}. Reserve now and choose to pay online or at the clinic.`
+                  : `Pick a date and slot for ${selectedDoctor.fullName}. Reserve now and pay online now or after the consultation.`}
+              </p>
             </div>
           </div>
 
@@ -480,6 +690,27 @@ function BookAppointmentPage({ auth }) {
                       {mode === 'online' ? 'Online' : 'Physical'}
                     </option>
                   ))}
+                </select>
+              </label>
+
+              <label className="form-field">
+                <span>Payment preference</span>
+                <select
+                  name="paymentOption"
+                  onChange={handleBookingChange}
+                  value={bookingForm.paymentOption}
+                >
+                  {bookingForm.mode === 'online' ? (
+                    <>
+                      <option value="ONLINE_AFTER">Pay after consultation</option>
+                      <option value="ONLINE_NOW">Pay now (online)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="PHYSICAL_ONSITE">Pay on-site</option>
+                      <option value="PHYSICAL_ONLINE_NOW">Pay now (online)</option>
+                    </>
+                  )}
                 </select>
               </label>
             </div>
@@ -545,13 +776,11 @@ function BookAppointmentPage({ auth }) {
               </div>
             ) : null}
 
-            <button className="btn btn-secondary booking-pay-button" type="button">
-              Pay now
-            </button>
-
             <div className="booking-actions">
               <button className="btn btn-primary" disabled={isSubmitting || !selectedDoctor} type="submit">
-                {isSubmitting ? 'Reserving...' : 'Reserve appointment'}
+                {isSubmitting
+                  ? 'Reserving...'
+                  : 'Reserve appointment'}
               </button>
               <button className="btn btn-secondary" onClick={() => navigate('/patient/dashboard')} type="button">
                 Back to dashboard
@@ -570,7 +799,11 @@ function BookAppointmentPage({ auth }) {
           <div className="section-header">
             <div>
               <h2>Payment step</h2>
-              <p>Your appointment is reserved and waiting for payment integration.</p>
+              <p>
+                {String(reservedAppointment.mode || '').toLowerCase() === 'online'
+                  ? 'Online appointment reserved. You may pay immediately or after the consultation.'
+                  : 'Physical appointment reserved. You may pay online now or on-site at the clinic.'}
+              </p>
             </div>
           </div>
 
@@ -600,7 +833,7 @@ function BookAppointmentPage({ auth }) {
             </div>
             <div className="dashboard-card glass">
               <h3>Payment status</h3>
-              <p className="card-value">{reservedAppointment.paymentStatus}</p>
+              <p className="card-value">{paymentRecord?.status || reservedAppointment.paymentStatus}</p>
             </div>
             <div className="dashboard-card glass">
               <h3>Appointment status</h3>
@@ -610,6 +843,14 @@ function BookAppointmentPage({ auth }) {
               <h3>Appointment ID</h3>
               <p className="card-value">{reservedAppointment.appointmentId}</p>
             </div>
+            <div className="dashboard-card glass">
+              <h3>Payment Order</h3>
+              <p className="card-value">{paymentOrderId || 'Pending'}</p>
+            </div>
+            <div className="dashboard-card glass">
+              <h3>Payment ID</h3>
+              <p className="card-value">{paymentRecord?._id || 'Pending'}</p>
+            </div>
           </div>
 
           <div className="dashboard-card glass">
@@ -618,11 +859,17 @@ function BookAppointmentPage({ auth }) {
           </div>
 
           <div className="booking-actions">
-            <button className="btn btn-primary" type="button">
-              Pay now
+            <button className="btn btn-primary" type="button" onClick={() => handlePayNow()} disabled={paymentProcessing || paymentState === 'paid'}>
+              {paymentProcessing ? 'Processing payment...' : paymentState === 'paid' ? 'Payment complete' : 'Pay online now'}
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={() => navigate('/appointments')}>
+              Manage in appointments
             </button>
             <button className="btn btn-secondary" onClick={() => navigate('/patient/dashboard')} type="button">
               View dashboard
+            </button>
+            <button className="btn btn-secondary" onClick={handleInvoiceDownload} type="button" disabled={!paymentRecord?._id}>
+              Download invoice
             </button>
           </div>
         </section>

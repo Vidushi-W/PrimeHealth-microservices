@@ -1,11 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  cancelTelemedicineSession,
+  createTelemedicineSession,
+  endTelemedicineSession,
+  fetchAppointmentById,
+  fetchTelemedicineSessionById,
+  fetchTelemedicineSessions,
+  joinTelemedicineSession,
+  startTelemedicineSession
+} from '../services/platformApi';
 
 const API_BASE_URL = import.meta.env.VITE_TELEMEDICINE_API_URL || 'http://localhost:5006';
 
-function authHeaders(token) {
-  return { Authorization: `Bearer ${token}` };
+function authHeaders(authOrToken) {
+  if (typeof authOrToken === 'string') {
+    return { Authorization: `Bearer ${authOrToken}` };
+  }
+
+  const auth = authOrToken || {};
+  const user = auth.user || {};
+  const headers = {};
+
+  if (auth.token) {
+    headers.Authorization = `Bearer ${auth.token}`;
+  }
+  if (user.userId || user.id || user._id) {
+    headers['x-user-id'] = user.userId || user.id || user._id;
+  }
+  if (user.role) {
+    headers['x-user-role'] = String(user.role).toUpperCase();
+  }
+  if (user.email) {
+    headers['x-user-email'] = user.email;
+  }
+  if (user.uniqueId) {
+    headers['x-user-unique-id'] = user.uniqueId;
+  }
+
+  return headers;
 }
 
 function formatDateTime(value) {
@@ -27,22 +62,32 @@ function statusTone(status) {
 }
 
 export default function TelemedicinePage({ auth }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeSession, setActiveSession] = useState(null);
   const [activeTab, setActiveTab] = useState('video');
+  const [lifecycleWorkingId, setLifecycleWorkingId] = useState('');
+  const [search, setSearch] = useState('');
+  const [deepLinkPreparing, setDeepLinkPreparing] = useState(false);
+  const sessionCreateInFlightRef = useRef(null);
+  const sessionCreateFailedForRef = useRef('');
+
+  const appointmentIdFromRoute = String(searchParams.get('appointmentId') || '').trim();
+  const role = String(auth?.user?.role || '').toLowerCase();
+  const isDeepLink = Boolean(appointmentIdFromRoute);
 
   const refreshSessions = async () => {
     try {
       setLoading(true);
-      const params = filter === 'all' ? undefined : { status: filter };
-      const response = await axios.get(`${API_BASE_URL}/telemedicine/sessions`, {
-        params,
-        headers: authHeaders(auth.token)
-      });
-      setSessions(response.data?.data || []);
+      const allSessions = await fetchTelemedicineSessions(auth);
+      const filtered = filter === 'all'
+        ? allSessions
+        : allSessions.filter((session) => String(session.status || '').toLowerCase() === filter);
+      setSessions(filtered || []);
       setError('');
     } catch (requestError) {
       const message = requestError.response?.data?.message || requestError.message || 'Failed to load sessions';
@@ -59,6 +104,93 @@ export default function TelemedicinePage({ auth }) {
     return () => window.clearInterval(interval);
   }, [filter]);
 
+  useEffect(() => {
+    sessionCreateFailedForRef.current = '';
+  }, [appointmentIdFromRoute]);
+
+  useEffect(() => {
+    if (!appointmentIdFromRoute || loading) {
+      return;
+    }
+
+    const existing = sessions.find((session) => String(session.appointmentId || '') === appointmentIdFromRoute);
+    if (existing) {
+      setDeepLinkPreparing(false);
+      sessionCreateInFlightRef.current = null;
+      setActiveSession((current) => {
+        if (String(current?.id || '') === String(existing.id || '')) {
+          return current;
+        }
+        return existing;
+      });
+      setActiveTab('video');
+      return;
+    }
+
+    if (sessionCreateInFlightRef.current === appointmentIdFromRoute) {
+      return;
+    }
+
+    if (sessionCreateFailedForRef.current === appointmentIdFromRoute) {
+      return;
+    }
+
+    let cancelled = false;
+    sessionCreateInFlightRef.current = appointmentIdFromRoute;
+    setDeepLinkPreparing(true);
+
+    const ensureSessionForAppointment = async () => {
+      try {
+        const appointment = await fetchAppointmentById(auth, appointmentIdFromRoute);
+        if (!appointment) {
+          throw new Error('Appointment not found for telemedicine session');
+        }
+
+        const date = String(appointment.appointmentDate || '').slice(0, 10);
+        const start = String(appointment.startTime || '00:00').slice(0, 5);
+        const end = String(appointment.endTime || appointment.startTime || '00:15').slice(0, 5);
+
+        const created = await createTelemedicineSession(auth, {
+          appointmentId: appointmentIdFromRoute,
+          doctorId: appointment.doctorId,
+          patientId: appointment.patientId,
+          provider: 'jitsi',
+          scheduledStartAt: `${date}T${start}:00.000Z`,
+          scheduledEndAt: `${date}T${end}:00.000Z`
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        toast.success('Telemedicine session is ready for this appointment');
+        if (created) {
+          setActiveSession(created);
+          setActiveTab('video');
+        }
+        await refreshSessions();
+      } catch (errorEnsuring) {
+        if (!cancelled) {
+          sessionCreateFailedForRef.current = appointmentIdFromRoute;
+          const message = errorEnsuring.message || 'Unable to prepare telemedicine session for this appointment';
+          setError(message);
+          toast.error(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setDeepLinkPreparing(false);
+          sessionCreateInFlightRef.current = null;
+        }
+      }
+    };
+
+    ensureSessionForAppointment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appointmentIdFromRoute, loading, sessions, auth]);
+
   const metrics = useMemo(() => {
     const live = sessions.filter((session) => session.status === 'live').length;
     const scheduled = sessions.filter((session) => session.status === 'scheduled').length;
@@ -66,17 +198,41 @@ export default function TelemedicinePage({ auth }) {
     return { live, scheduled, completed };
   }, [sessions]);
 
+  const visibleSessions = useMemo(() => {
+    if (!search.trim()) return sessions;
+    const term = search.toLowerCase();
+    return sessions.filter((session) => {
+      const text = [
+        session.id,
+        session.appointmentId,
+        session.doctorId,
+        session.patientId,
+        session.status,
+        session.provider
+      ].filter(Boolean).join(' ').toLowerCase();
+      return text.includes(term);
+    });
+  }, [sessions, search]);
+
   const selectSession = (session) => {
-    setActiveSession(session);
-    setActiveTab('video');
+    const loadDetails = async () => {
+      try {
+        const detailed = await fetchTelemedicineSessionById(auth, session.id);
+        setActiveSession(detailed || session);
+      } catch (_error) {
+        setActiveSession(session);
+      } finally {
+        setActiveTab('video');
+      }
+    };
+
+    loadDetails();
   };
 
   const startSession = async (sessionId) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/telemedicine/sessions/${sessionId}/start`, {}, {
-        headers: authHeaders(auth.token)
-      });
-      const updated = response.data?.data;
+      setLifecycleWorkingId(sessionId);
+      const updated = await startTelemedicineSession(auth, sessionId);
       setSessions((current) => current.map((session) => (session.id === sessionId ? updated : session)));
       setActiveSession(updated);
       setActiveTab('video');
@@ -85,36 +241,126 @@ export default function TelemedicinePage({ auth }) {
       const message = requestError.response?.data?.message || requestError.message || 'Failed to start session';
       setError(message);
       toast.error(message);
+    } finally {
+      setLifecycleWorkingId('');
     }
   };
 
+  const handleEndSession = async (sessionId) => {
+    try {
+      setLifecycleWorkingId(sessionId);
+      const updated = await endTelemedicineSession(auth, sessionId);
+      setSessions((current) => current.map((session) => (session.id === sessionId ? updated : session)));
+      if (String(activeSession?.id) === String(sessionId)) {
+        setActiveSession(updated);
+      }
+      toast.success('Session ended');
+
+      if (role === 'patient' && String(updated?.appointmentId || '').trim()) {
+        navigate(`/appointments?payAppointmentId=${encodeURIComponent(updated.appointmentId)}`);
+      }
+    } catch (errorEnding) {
+      toast.error(errorEnding.message || 'Unable to end session');
+    } finally {
+      setLifecycleWorkingId('');
+    }
+  };
+
+  const handleCancelSession = async (sessionId) => {
+    try {
+      setLifecycleWorkingId(sessionId);
+      const updated = await cancelTelemedicineSession(auth, sessionId);
+      setSessions((current) => current.map((session) => (session.id === sessionId ? updated : session)));
+      if (String(activeSession?.id) === String(sessionId)) {
+        setActiveSession(updated);
+      }
+      toast.success('Session cancelled');
+    } catch (errorCancelling) {
+      toast.error(errorCancelling.message || 'Unable to cancel session');
+    } finally {
+      setLifecycleWorkingId('');
+    }
+  };
+
+  const videoWorkspace = activeSession ? (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">Video call</p>
+          <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">Session {String(activeSession.id).slice(-6)}</h2>
+          <p className="mt-1 text-sm text-slate-500">Appointment {activeSession.appointmentId || 'not linked'} · {activeSession.provider || 'jitsi'}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="button-secondary" onClick={() => setActiveSession(null)}>Back to sessions</button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {['video', 'chat', 'details'].map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${activeTab === tab ? 'bg-brand-500 text-white shadow-soft' : 'bg-slate-100 text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
+          >
+            {tab[0].toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'video' ? <VideoConsultation sessionId={activeSession.id} authContext={auth} onSessionUpdate={setActiveSession} /> : null}
+      {activeTab === 'chat' ? <ChatWindow sessionId={activeSession.id} authContext={auth} userId={auth.user?.userId || auth.user?._id || auth.user?.id} /> : null}
+      {activeTab === 'details' ? <SessionDetails session={activeSession} /> : null}
+    </div>
+  ) : (
+    <div className="grid min-h-[min(85vh,52rem)] place-items-center rounded-[1.5rem] border border-dashed border-brand-200 bg-gradient-to-br from-slate-900 via-slate-800 to-brand-900 p-8 text-center text-white shadow-soft">
+      <div className="max-w-md">
+        <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-200">Video room</p>
+        <h2 className="mt-3 text-2xl font-black tracking-tight">
+          {deepLinkPreparing || loading ? 'Preparing your consultation…' : 'Choose a session to join'}
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-white/80">
+          {deepLinkPreparing || loading
+            ? 'We are linking this appointment to a secure Jitsi room. Your camera and microphone will start here in a moment—same idea as Google Meet or Teams.'
+            : 'Pick this appointment’s session from the list below (View session / Join now), or open the link again after the doctor has started the visit.'}
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-8 animate-fade-up">
+      {isDeepLink ? (
+        <section className="panel overflow-hidden p-5 shadow-soft lg:p-6">
+          {videoWorkspace}
+        </section>
+      ) : null}
+
       <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white/80 shadow-soft">
         <div className="grid gap-8 px-6 py-8 lg:grid-cols-[1.15fr_0.85fr] lg:px-8 lg:py-10">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.35em] text-brand-600">Telemedicine hub</p>
             <h1 className="mt-4 max-w-2xl text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">Real-time consultation workspace.</h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-              Live sessions, Jitsi video, and secure chat are wired to the telemedicine service. Select a session to join or start it when you are the assigned doctor.
+              Open your appointment session and connect instantly. Video opens in the workspace when you select a live session or follow an appointment link.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <span className="badge-soft">Sessions</span>
               <span className="badge-soft">Jitsi video</span>
               <span className="badge-soft">Secure chat</span>
-              <span className="badge-soft">JWT-authenticated</span>
+              <span className="badge-soft">JWT when configured</span>
             </div>
           </div>
 
           <div className="grid gap-3 rounded-[1.5rem] bg-brand-50 p-6 text-slate-900 shadow-soft sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-            <MetricCard label="Live" value={metrics.live} accent="text-emerald-300" />
-            <MetricCard label="Scheduled" value={metrics.scheduled} accent="text-amber-300" />
-            <MetricCard label="Completed" value={metrics.completed} accent="text-sky-300" />
+            <MetricCard label="Live" value={metrics.live} accent="text-emerald-700" />
+            <MetricCard label="Scheduled" value={metrics.scheduled} accent="text-amber-700" />
+            <MetricCard label="Completed" value={metrics.completed} accent="text-sky-700" />
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[0.94fr_1.06fr]">
+      <section className={`grid gap-6 ${isDeepLink ? 'xl:grid-cols-1' : 'xl:grid-cols-[0.94fr_1.06fr]'}`}>
         <div className="panel p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -134,6 +380,14 @@ export default function TelemedicinePage({ auth }) {
               ))}
             </div>
           </div>
+          <div className="mt-4">
+            <input
+              className="input max-w-sm"
+              placeholder="Search by session ID, appointment, doctor, or patient"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
 
           {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
@@ -142,11 +396,11 @@ export default function TelemedicinePage({ auth }) {
               <div className="rounded-2xl border border-dashed border-brand-100 bg-white/70 px-4 py-10 text-center text-sm text-slate-500">Loading telemedicine sessions...</div>
             ) : null}
 
-            {!loading && sessions.length === 0 ? (
+            {!loading && visibleSessions.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-brand-100 bg-white/70 px-4 py-10 text-center text-sm text-slate-500">No sessions found for this filter.</div>
             ) : null}
 
-            {sessions.map((session) => {
+            {visibleSessions.map((session) => {
               const isActive = activeSession?.id === session.id;
               return (
                 <article
@@ -175,11 +429,14 @@ export default function TelemedicinePage({ auth }) {
 
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button type="button" className="button-secondary" onClick={() => selectSession(session)}>View session</button>
-                    {session.status === 'scheduled' && auth.user?.role === 'doctor' ? (
-                      <button type="button" className="button-primary" onClick={() => startSession(session.id)}>Start consultation</button>
-                    ) : null}
                     {session.status === 'live' ? (
                       <button type="button" className="button-primary" onClick={() => selectSession(session)}>Join now</button>
+                    ) : null}
+                    {session.status === 'live' ? (
+                      <button type="button" className="button-secondary" disabled={lifecycleWorkingId === session.id} onClick={() => handleEndSession(session.id)}>End session</button>
+                    ) : null}
+                    {session.status === 'scheduled' && role !== 'patient' ? (
+                      <button type="button" className="button-secondary" disabled={lifecycleWorkingId === session.id} onClick={() => handleCancelSession(session.id)}>Cancel session</button>
                     ) : null}
                   </div>
                 </article>
@@ -188,45 +445,47 @@ export default function TelemedicinePage({ auth }) {
           </div>
         </div>
 
-        <div className="panel p-5">
-          {activeSession ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">Consultation workspace</p>
-                  <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">Session {String(activeSession.id).slice(-6)}</h2>
-                  <p className="mt-1 text-sm text-slate-500">Appointment {activeSession.appointmentId || 'not linked'} · {activeSession.provider || 'jitsi'}</p>
+        {!isDeepLink ? (
+          <div className="panel p-5">
+            {activeSession ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">Consultation workspace</p>
+                    <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">Session {String(activeSession.id).slice(-6)}</h2>
+                    <p className="mt-1 text-sm text-slate-500">Appointment {activeSession.appointmentId || 'not linked'} · {activeSession.provider || 'jitsi'}</p>
+                  </div>
+                  <button type="button" className="button-secondary" onClick={() => setActiveSession(null)}>Back to sessions</button>
                 </div>
-                <button type="button" className="button-secondary" onClick={() => setActiveSession(null)}>Back to sessions</button>
-              </div>
 
-              <div className="flex flex-wrap gap-2">
-                {['video', 'chat', 'details'].map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setActiveTab(tab)}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${activeTab === tab ? 'bg-brand-500 text-white shadow-soft' : 'bg-slate-100 text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
-                  >
-                    {tab[0].toUpperCase() + tab.slice(1)}
-                  </button>
-                ))}
-              </div>
+                <div className="flex flex-wrap gap-2">
+                  {['video', 'chat', 'details'].map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveTab(tab)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${activeTab === tab ? 'bg-brand-500 text-white shadow-soft' : 'bg-slate-100 text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
+                    >
+                      {tab[0].toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </div>
 
-              {activeTab === 'video' ? <VideoConsultation sessionId={activeSession.id} authToken={auth.token} /> : null}
-              {activeTab === 'chat' ? <ChatWindow sessionId={activeSession.id} authToken={auth.token} userId={auth.user?.userId || auth.user?._id || auth.user?.id} /> : null}
-              {activeTab === 'details' ? <SessionDetails session={activeSession} /> : null}
-            </div>
-          ) : (
-            <div className="grid h-full place-items-center rounded-[1.5rem] border border-dashed border-brand-100 bg-gradient-to-br from-white to-brand-50/40 p-8 text-center">
-              <div className="max-w-md">
-                <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">No active session</p>
-                <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900">Choose a consultation to continue.</h2>
-                <p className="mt-3 text-sm leading-6 text-slate-600">Start with a scheduled session, then switch between video and chat inside the same workspace.</p>
+                {activeTab === 'video' ? <VideoConsultation sessionId={activeSession.id} authContext={auth} onSessionUpdate={setActiveSession} /> : null}
+                {activeTab === 'chat' ? <ChatWindow sessionId={activeSession.id} authContext={auth} userId={auth.user?.userId || auth.user?._id || auth.user?.id} /> : null}
+                {activeTab === 'details' ? <SessionDetails session={activeSession} /> : null}
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="grid h-full place-items-center rounded-[1.5rem] border border-dashed border-brand-100 bg-gradient-to-br from-white to-brand-50/40 p-8 text-center">
+                <div className="max-w-md">
+                  <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">No active session</p>
+                  <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900">Choose a consultation to continue.</h2>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">Start with a scheduled session, then switch between video and chat inside the same workspace.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
     </div>
   );
@@ -263,13 +522,15 @@ function Detail({ label, value }) {
   );
 }
 
-function VideoConsultation({ sessionId, authToken }) {
+function VideoConsultation({ sessionId, authContext, onSessionUpdate }) {
   const containerRef = useRef(null);
   const apiRef = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [error, setError] = useState('');
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [waitingForPeer, setWaitingForPeer] = useState(true);
+  const [participantCount, setParticipantCount] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,15 +540,26 @@ function VideoConsultation({ sessionId, authToken }) {
         setStatus('connecting');
         setError('');
 
+        const joined = await joinTelemedicineSession(authContext, sessionId);
+        onSessionUpdate?.(joined);
+
         const response = await axios.post(`${API_BASE_URL}/telemedicine/sessions/${sessionId}/video-token`, {}, {
-          headers: authHeaders(authToken)
+          headers: authHeaders(authContext)
         });
 
         if (cancelled) return;
 
         const payload = response.data?.data || {};
         const roomName = payload.roomName;
-        const token = payload.token;
+        const token = payload.token || null;
+        let domain = 'meet.jit.si';
+        try {
+          if (payload.roomUrl) {
+            domain = new URL(payload.roomUrl).hostname;
+          }
+        } catch (_parseError) {
+          domain = 'meet.jit.si';
+        }
 
         if (!window.JitsiMeetExternalAPI) {
           throw new Error('Jitsi Meet is not loaded. Refresh the page and try again.');
@@ -297,25 +569,52 @@ function VideoConsultation({ sessionId, authToken }) {
           containerRef.current.innerHTML = '';
         }
 
-        apiRef.current = new window.JitsiMeetExternalAPI('meet.jit.si', {
+        const jitsiOptions = {
           roomName,
           width: '100%',
           height: '100%',
           parentNode: containerRef.current,
-          jwt: token,
           configOverwrite: {
             startWithAudioMuted: false,
             startWithVideoMuted: false,
-            disableDeepLinking: true
+            disableDeepLinking: true,
+            prejoinPageEnabled: false
           },
           interfaceConfigOverwrite: {
             SHOW_JITSI_WATERMARK: false,
             SHOW_BRAND_WATERMARK: false,
             VERTICAL_FILMSTRIP: false
           }
-        });
+        };
+        if (token) {
+          jitsiOptions.jwt = token;
+        }
 
-        apiRef.current.addEventListener('videoConferenceJoined', () => setStatus('active'));
+        apiRef.current = new window.JitsiMeetExternalAPI(domain, jitsiOptions);
+
+        apiRef.current.addEventListener('videoConferenceJoined', () => {
+          setStatus('active');
+          setWaitingForPeer(true);
+          setParticipantCount(1);
+        });
+        apiRef.current.addEventListener('participantJoined', () => {
+          setParticipantCount((current) => {
+            const next = current + 1;
+            if (next >= 2) {
+              setWaitingForPeer(false);
+            }
+            return next;
+          });
+        });
+        apiRef.current.addEventListener('participantLeft', () => {
+          setParticipantCount((current) => {
+            const next = Math.max(1, current - 1);
+            if (next < 2) {
+              setWaitingForPeer(true);
+            }
+            return next;
+          });
+        });
         apiRef.current.addEventListener('readyToClose', () => setStatus('ended'));
       } catch (requestError) {
         const message = requestError.response?.data?.message || requestError.message || 'Failed to initialize video';
@@ -339,7 +638,7 @@ function VideoConsultation({ sessionId, authToken }) {
         containerRef.current.innerHTML = '';
       }
     };
-  }, [authToken, sessionId]);
+  }, [authContext, sessionId, onSessionUpdate]);
 
   const toggleAudio = () => {
     apiRef.current?.executeCommand?.('toggleAudio');
@@ -356,12 +655,21 @@ function VideoConsultation({ sessionId, authToken }) {
       {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
-        <div className="overflow-hidden rounded-[1.5rem] border border-brand-100 bg-white shadow-soft">
-          <div className="flex items-center justify-between border-b border-brand-100 px-4 py-3 text-sm text-slate-600">
-            <span>Jitsi video room</span>
-            <span>Status: {status}</span>
+        <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-950 shadow-soft ring-1 ring-slate-900/5">
+          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200">
+            <span className="font-semibold">In-call video</span>
+            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-300">{status === 'active' ? 'Connected' : status}</span>
           </div>
-          <div ref={containerRef} className="min-h-[30rem] bg-brand-50" />
+          <div className="relative min-h-[min(85vh,52rem)] bg-slate-900">
+            <div ref={containerRef} className="min-h-[min(85vh,52rem)] w-full" />
+            {waitingForPeer && status === 'active' ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-gradient-to-t from-black/80 to-transparent px-4 pb-4 pt-12 text-center">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-200">Waiting for others</p>
+                <p className="mt-1 text-sm text-white/90">You are in the room. When your clinician or patient joins, they will appear here.</p>
+                <p className="mt-1 text-xs text-white/60">Participants: {participantCount}</p>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="rounded-[1.5rem] border border-brand-100 bg-gradient-to-br from-white to-brand-50/50 p-5">
@@ -384,7 +692,7 @@ function VideoConsultation({ sessionId, authToken }) {
   );
 }
 
-function ChatWindow({ sessionId, authToken, userId }) {
+function ChatWindow({ sessionId, authContext, userId }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
@@ -394,7 +702,7 @@ function ChatWindow({ sessionId, authToken, userId }) {
   const loadMessages = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/telemedicine/chat/${sessionId}/messages`, {
-        headers: authHeaders(authToken)
+        headers: authHeaders(authContext)
       });
       setMessages(response.data?.data || []);
       setError('');
@@ -424,7 +732,7 @@ function ChatWindow({ sessionId, authToken, userId }) {
     setInput('');
     try {
       const response = await axios.post(`${API_BASE_URL}/telemedicine/chat/${sessionId}/messages`, { content }, {
-        headers: authHeaders(authToken)
+        headers: authHeaders(authContext)
       });
       const created = response.data?.data;
       if (created) {

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { analyzePatientReport, deletePatientReport, getPatientHome, uploadPatientReport } from '../services/patientApi';
 import './PatientInsightsPage.css';
 
-const CARD_ICONS = ['BG', 'ICE', 'MAIL'];
+const CARD_ICONS = ['\uD83D\uDCC5', '\uD83D\uDC68\u200D\u2695\uFE0F', '\uD83D\uDC8A'];
 const initialReportForm = {
   reportType: '',
   reportDate: '',
@@ -62,12 +62,12 @@ function StatCard({ stat, index }) {
   );
 }
 
-function SectionHeader({ title, description, action }) {
+function SectionHeader({ title, description, action, icon = '•' }) {
   return (
     <div className="section-header">
       <div>
         <p className="section-kicker">Care overview</p>
-        <h2>{title}</h2>
+        <h2><span className="section-icon" aria-hidden="true">{icon}</span>{title}</h2>
         <p>{description}</p>
       </div>
       {action}
@@ -351,18 +351,24 @@ function Dashboard({ auth, onProfileSync }) {
             <Link className="btn btn-primary" to="/patient/appointments/book">
               Book appointment
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.profile?.route || '/patient/profile'}>
+            <Link className="btn btn-secondary" to={homeData?.quickActions?.profile?.route || '/profile'}>
               {homeData?.quickActions?.profile?.ctaLabel || 'Open profile'}
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.riskScore?.route || '/patient/risk-score'}>
+            <Link className="btn btn-secondary" to={homeData?.quickActions?.riskScore?.route || '/risk-score'}>
               {homeData?.quickActions?.riskScore?.ctaLabel || 'Calculate risk score'}
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.reminders?.route || '/patient/reminders'}>
+            <Link className="btn btn-secondary" to={homeData?.quickActions?.reminders?.route || '/reminders'}>
               {homeData?.quickActions?.reminders?.ctaLabel || 'Open reminders'}
             </Link>
-            <a className="btn btn-secondary" href={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
+            <Link className="btn btn-secondary" to={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
               {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
-            </a>
+            </Link>
+            <Link className="btn btn-secondary" to="/family-profiles">
+              Family profiles
+            </Link>
+            <Link className="btn btn-secondary" to="/risk-score">
+              Health risk analyzer
+            </Link>
           </div>
         </section>
 
@@ -376,6 +382,7 @@ function Dashboard({ auth, onProfileSync }) {
           <SectionHeader
             title="Upload Records"
             description="Add lab results, scans, and medical reports so they are available during your next consultation."
+            icon="📁"
           />
 
           <form className="profile-form" onSubmit={handleReportUpload}>
@@ -421,6 +428,7 @@ function Dashboard({ auth, onProfileSync }) {
               title="Upcoming appointments"
               description="Your next booked consultations and current visit details."
               action={<Link className="btn btn-secondary small" to="/patient/appointments/book">Book appointment</Link>}
+              icon="🗓️"
             />
 
             <div className="list-stack">
@@ -434,6 +442,7 @@ function Dashboard({ auth, onProfileSync }) {
             <SectionHeader
               title="Recent prescriptions"
               description="The latest medicines and treatment notes issued to you."
+              icon="💊"
             />
 
             <div className="list-stack">
@@ -458,6 +467,7 @@ function Dashboard({ auth, onProfileSync }) {
             <SectionHeader
               title="Uploaded reports"
               description="Lab reports, scans, and clinical files you have added."
+              icon="🧾"
             />
 
             <div className="list-stack">
@@ -478,7 +488,8 @@ function Dashboard({ auth, onProfileSync }) {
             <SectionHeader
               title="Medical history"
               description="Your latest appointments, reports, prescriptions, and consultation updates."
-              action={<Link className="btn btn-secondary small" to="/patient/history">Open timeline</Link>}
+              action={<Link className="btn btn-secondary small" to="/medical-history">Open timeline</Link>}
+              icon="📚"
             />
 
             <div className="list-stack">
@@ -492,6 +503,7 @@ function Dashboard({ auth, onProfileSync }) {
             <SectionHeader
               title="Reminders"
               description="Things worth updating so your care flow stays ready."
+              icon="⏰"
             />
 
             <div className="list-stack">
@@ -516,10 +528,39 @@ function Dashboard({ auth, onProfileSync }) {
             <h2>{homeData?.quickActions?.symptomChecker?.title || 'Start a quick symptom check'}</h2>
             <p>{homeData?.quickActions?.symptomChecker?.description}</p>
           </div>
-          <a className="btn btn-primary" href={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
+          <Link className="btn btn-primary" to={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
             {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
-          </a>
+          </Link>
         </section>
+
+        <div className="dashboard-grid dashboard-grid-tight">
+          <div className="dashboard-card">
+            <div>
+              <h3>Health risk analyzer</h3>
+              <p className="card-value">Track BMI and risk score trends</p>
+              <p className="text-muted">Analyze your health factors and see risk changes on a timeline chart.</p>
+              <Link className="btn btn-secondary small" to="/risk-score">Open analyzer</Link>
+            </div>
+          </div>
+
+          <div className="dashboard-card">
+            <div>
+              <h3>Family profile management</h3>
+              <p className="card-value">Manage multiple member profiles</p>
+              <p className="text-muted">Add, edit, remove, and switch between dependent profiles under one account.</p>
+              <Link className="btn btn-secondary small" to="/family-profiles">Open family profiles</Link>
+            </div>
+          </div>
+
+          <div className="dashboard-card">
+            <div>
+              <h3>Quick symptom checker</h3>
+              <p className="card-value">AI-assisted symptom review</p>
+              <p className="text-muted">Get preliminary guidance and suggested specialties before booking.</p>
+              <Link className="btn btn-secondary small" to="/symptom-checker">Start symptom check</Link>
+            </div>
+          </div>
+        </div>
 
         {reportMessage ? <p className="form-message success compact-message">{reportMessage}</p> : null}
       </div>

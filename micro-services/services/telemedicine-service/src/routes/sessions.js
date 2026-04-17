@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { auth, requireRole } = require('../middleware/auth');
 const ConsultationSession = require('../models/ConsultationSession');
-const { canAccessSession } = require('../services/sessionAccess');
+const { canAccessSession, canJoinSessionNow } = require('../services/sessionAccess');
 const { getRoomName, generateVideoSessionPayload } = require('../services/videoProviders');
 
 const router = express.Router();
@@ -39,7 +39,7 @@ const loadSession = async (sessionId) => {
 
 router.use(auth);
 
-router.post('/', requireRole('doctor', 'admin'), async (req, res) => {
+router.post('/', requireRole('doctor', 'patient', 'admin'), async (req, res) => {
     try {
         const {
             appointmentId = '',
@@ -55,6 +55,28 @@ router.post('/', requireRole('doctor', 'admin'), async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'doctorId, patientId, scheduledStartAt, and scheduledEndAt are required.'
+            });
+        }
+
+        const requesterId = String(req.user.userId || '').trim();
+        const requesterUniqueId = String(req.user.uniqueId || '').trim();
+        const participantIds = new Set([
+            requesterId,
+            requesterUniqueId,
+            String(req.user.email || '').trim()
+        ].filter(Boolean));
+
+        if (req.user.role === 'doctor' && !participantIds.has(String(doctorId).trim())) {
+            return res.status(403).json({
+                success: false,
+                message: 'Doctors can only create sessions for themselves.'
+            });
+        }
+
+        if (req.user.role === 'patient' && !participantIds.has(String(patientId).trim())) {
+            return res.status(403).json({
+                success: false,
+                message: 'Patients can only create sessions for themselves.'
             });
         }
 
@@ -207,6 +229,68 @@ router.post('/:sessionId/start', async (req, res) => {
     }
 });
 
+router.post('/:sessionId/join', async (req, res) => {
+    try {
+        const session = await loadSession(req.params.sessionId);
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                message: 'Session not found.'
+            });
+        }
+
+        if (!canAccessSession(req.user, session)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You cannot access this session.'
+            });
+        }
+
+        const joinAccess = canJoinSessionNow(session);
+        if (!joinAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                message: joinAccess.reason
+            });
+        }
+
+        const joinedRole = req.user.role === 'doctor' ? 'doctor' : 'patient';
+        const now = new Date();
+        const metadata = {
+            ...(session.metadata || {}),
+            participants: {
+                ...((session.metadata || {}).participants || {}),
+                [joinedRole]: {
+                    joinedAt: now.toISOString(),
+                    userId: req.user.userId
+                }
+            },
+            lastJoinedRole: joinedRole,
+            lastJoinedAt: now.toISOString()
+        };
+
+        session.metadata = metadata;
+
+        if (session.status === 'scheduled') {
+            session.status = 'live';
+            session.startedAt = session.startedAt || now;
+        }
+
+        await session.save();
+
+        return res.json({
+            success: true,
+            data: parseSessionDocument(session)
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
 router.post('/:sessionId/end', async (req, res) => {
     try {
         const session = await loadSession(req.params.sessionId);
@@ -297,6 +381,14 @@ router.post('/:sessionId/video-token', async (req, res) => {
             return res.status(403).json({
                 success: false,
                 message: 'You cannot access this session.'
+            });
+        }
+
+        const joinAccess = canJoinSessionNow(session);
+        if (!joinAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                message: joinAccess.reason
             });
         }
 

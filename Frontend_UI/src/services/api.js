@@ -25,6 +25,7 @@ function readStoredValue(keys) {
 
 api.interceptors.request.use((config) => {
   const storedUser =
+    readStoredJson('primeHealthAuth')?.user ||
     readStoredJson('primehealth:user') ||
     readStoredJson('primehealthUser') ||
     readStoredJson('user') ||

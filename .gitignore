@@ -84,3 +84,17 @@ micro-services/**/.DS_Store
 docker-compose.override.yml
 micro-services/docker/docker-compose.override.yml
 micro-services/docker/.env
+
+# Generated report appendix (large; regenerate: node scripts/build-report-appendix.js)
+docs/REPORT_APPENDIX_SOURCE_CODE.md
+
+# Prescription PDF output (if generated locally)
+micro-services/services/prescription-service/storage/
+
+# Local IDE / tooling (do not commit)
+.cursor/
+*.code-workspace
+
+# Optional local SSL / keys (keep real certs out of Git)
+*.pem
+*.key

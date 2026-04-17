@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const doctorController = require('../controllers/doctorController');
 const { validate } = require('../utils/validate');
+const { doctorPhotoUpload } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -49,10 +50,22 @@ router.put(
     body('name').optional().isString().trim().isLength({ min: 2 }),
     body('email').optional().isEmail().normalizeEmail(),
     body('specialization').optional().isString().trim().notEmpty(),
-    body('experience').optional().isInt({ min: 0 }).toInt()
+    body('experience').optional().isInt({ min: 0 }).toInt(),
+    body('phoneNumber').optional().isString().trim(),
+    body('qualifications').optional().isString().trim(),
+    body('hospitalOrClinic').optional().isString().trim(),
+    body('bio').optional().isString().trim()
   ],
   validate,
   doctorController.updateDoctor
+);
+
+router.post(
+  '/api/doctors/:id/profile-picture',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  doctorPhotoUpload.single('profilePicture'),
+  doctorController.uploadProfilePicture
 );
 
 router.post(
@@ -111,6 +124,33 @@ router.patch(
   doctorController.updateAvailabilitySlotStatus
 );
 
+router.put(
+  '/api/doctors/:id/availability/slots',
+  [
+    param('id').isString().trim().notEmpty(),
+    body('day').isString().trim().notEmpty(),
+    body('start').isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    body('end').isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    body('newStart').optional().isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    body('newEnd').optional().isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    body('status').optional().isIn(['available', 'booked'])
+  ],
+  validate,
+  doctorController.updateAvailabilitySlot
+);
+
+router.delete(
+  '/api/doctors/:id/availability/slots',
+  [
+    param('id').isString().trim().notEmpty(),
+    body('day').isString().trim().notEmpty(),
+    body('start').isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/),
+    body('end').isString().trim().matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+  ],
+  validate,
+  doctorController.deleteAvailabilitySlot
+);
+
 router.get(
   '/api/doctors/:id/next-available-slot',
   [param('id').isString().trim().notEmpty()],
@@ -133,6 +173,55 @@ router.get(
   ],
   validate,
   doctorController.getPatientSummary
+);
+
+router.get(
+  '/api/doctors/:id/upcoming-appointments',
+  [param('id').isString().trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 100 })],
+  validate,
+  doctorController.getUpcomingAppointments
+);
+
+router.get(
+  '/api/doctors/:id/patient-reports',
+  [param('id').isString().trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 200 })],
+  validate,
+  doctorController.getPatientReports
+);
+
+router.get(
+  '/api/doctors/:id/earnings',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  doctorController.getEarnings
+);
+
+router.get(
+  '/api/doctors/:id/notifications',
+  [param('id').isString().trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 100 })],
+  validate,
+  doctorController.getNotifications
+);
+
+router.get(
+  '/api/doctors/:id/reviews',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  doctorController.getReviews
+);
+
+router.post(
+  '/api/doctors/:id/reviews',
+  [
+    param('id').isString().trim().notEmpty(),
+    body('patientId').isString().trim().notEmpty(),
+    body('patientName').optional().isString().trim(),
+    body('appointmentId').optional().isString().trim(),
+    body('rating').isInt({ min: 1, max: 5 }).toInt(),
+    body('review').optional().isString().trim()
+  ],
+  validate,
+  doctorController.submitReview
 );
 
 router.post('/api/internal/doctors/sync', doctorController.syncDoctorFromAdmin);

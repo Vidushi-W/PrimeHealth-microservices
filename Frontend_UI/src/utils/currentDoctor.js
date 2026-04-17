@@ -17,7 +17,11 @@ function readStoredValue(keys) {
 }
 
 export function getStoredDoctorIdentity() {
+  const authState = parseStoredJson('primeHealthAuth') || {};
+  const authUser = authState.user || {};
+
   const storedUser =
+    (Object.keys(authUser).length ? authUser : null) ||
     parseStoredJson('primehealth:user') ||
     parseStoredJson('primehealthUser') ||
     parseStoredJson('user') ||
@@ -26,6 +30,7 @@ export function getStoredDoctorIdentity() {
   return {
     id:
       readStoredValue(['primehealth:doctorId', 'primehealthDoctorId', 'doctorId']) ||
+      authUser.userId ||
       storedUser.doctorId ||
       storedUser.doctor?._id ||
       storedUser.doctor?.id ||
@@ -58,7 +63,7 @@ export function resolveCurrentDoctor(doctors) {
   }
 
   return {
-    doctor: doctors[0] || null,
-    source: doctors.length > 0 ? 'demo-fallback' : 'missing'
+    doctor: null,
+    source: 'missing'
   };
 }

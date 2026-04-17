@@ -22,6 +22,6 @@ module.exports = {
         appCertificate: process.env.AGORA_APP_CERTIFICATE || '',
         tokenTtlSeconds: parseInteger(process.env.AGORA_TOKEN_TTL_SECONDS, 3600)
     },
-    chatPreMinutes: parseInteger(process.env.CHAT_PRE_MINUTES, 30),
+    chatPreMinutes: parseInteger(process.env.CHAT_PRE_MINUTES, 60),
     chatPostMinutes: parseInteger(process.env.CHAT_POST_MINUTES, 120)
 };

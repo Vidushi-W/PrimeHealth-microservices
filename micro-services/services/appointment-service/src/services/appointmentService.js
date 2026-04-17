@@ -1,11 +1,102 @@
 const Appointment = require('../models/Appointment');
 const ApiError = require('../utils/ApiError');
 const doctorClient = require('./doctorClient');
+const { fetchDoctorById } = require('./doctorServiceClient');
+const { fetchPatientSummary } = require('./patientServiceClient');
+const { syncPatientAppointmentStatus } = require('./patientAppointmentClient');
+
+const APPOINTMENT_STATUS = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
+const PAYMENT_STATUS = ['UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED'];
+
+function toPlainAppointment(appointment) {
+  if (!appointment) return null;
+  return typeof appointment.toObject === 'function' ? appointment.toObject() : appointment;
+}
 
 class AppointmentService {
+  _normalizeStatus(status) {
+    return String(status || '').trim().toUpperCase();
+  }
+
+  _assertValidStatus(status) {
+    const normalized = this._normalizeStatus(status);
+    if (!APPOINTMENT_STATUS.includes(normalized)) {
+      throw new ApiError(400, 'Invalid status');
+    }
+    return normalized;
+  }
+
+  _assertValidPaymentStatus(paymentStatus) {
+    const normalized = this._normalizeStatus(paymentStatus);
+    if (!PAYMENT_STATUS.includes(normalized)) {
+      throw new ApiError(400, 'Invalid payment status');
+    }
+    return normalized;
+  }
+
+  _assertStatusTransition(currentStatus, nextStatus) {
+    const flow = {
+      PENDING: new Set(['CONFIRMED', 'CANCELLED']),
+      CONFIRMED: new Set(['COMPLETED', 'CANCELLED']),
+      COMPLETED: new Set([]),
+      CANCELLED: new Set([])
+    };
+
+    if (currentStatus === nextStatus) return;
+
+    if (!flow[currentStatus] || !flow[currentStatus].has(nextStatus)) {
+      throw new ApiError(400, `Invalid appointment transition: ${currentStatus} -> ${nextStatus}`);
+    }
+  }
+
+  async _syncPatientAppointment(appointment, overrides = {}) {
+    if (!appointment?._id) return;
+    await syncPatientAppointmentStatus(String(appointment._id), {
+      status: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+      ...overrides
+    });
+  }
+
+  async attachPatientNames(appointments) {
+    const list = (Array.isArray(appointments) ? appointments : []).map((item) => toPlainAppointment(item)).filter(Boolean);
+    const patientIds = [...new Set(list.map((item) => String(item.patientId || '').trim()).filter(Boolean))];
+
+    if (!patientIds.length) {
+      return list;
+    }
+
+    const resolved = await Promise.all(
+      patientIds.map(async (patientId) => {
+        const summary = await fetchPatientSummary(patientId);
+        const patientName = String(summary?.patient?.name || '').trim();
+        return [patientId, patientName];
+      })
+    );
+
+    const patientNameMap = new Map(resolved.filter(([, name]) => Boolean(name)));
+
+    return list.map((appointment) => {
+      const patientId = String(appointment.patientId || '').trim();
+      return {
+        ...appointment,
+        patientName: patientNameMap.get(patientId) || appointment.patientName || ''
+      };
+    });
+  }
+
   // ─── Create Appointment ──────────────────────────────────
   async createAppointment(data) {
-    const { patientId, doctorId, doctorName, specialty, appointmentDate, startTime, endTime, reason, consultationFee } = data;
+    const { patientId, patientName, doctorId, doctorName, specialty, appointmentDate, startTime, endTime, mode, reason, consultationFee } = data;
+    const appointmentMode = String(mode || 'online').toLowerCase() === 'physical' ? 'physical' : 'online';
+
+    let canonicalDoctorId = String(doctorId || '').trim();
+    try {
+      const doctor = await fetchDoctorById(canonicalDoctorId);
+      canonicalDoctorId = String(doctor?.externalRef || doctor?.uniqueId || doctor?._id || canonicalDoctorId);
+    } catch (_error) {
+      // If lookup fails, continue with provided ID for backward compatibility.
+    }
 
     // 1. Validate date is not in the past
     const today = new Date();
@@ -16,14 +107,14 @@ class AppointmentService {
     }
 
     // 2. Check if doctor is valid and available (Inter-service communication)
-    const isDoctorAvailable = await doctorClient.checkDoctorAvailability(doctorId, appointmentDate, startTime);
+    const isDoctorAvailable = await doctorClient.checkDoctorAvailability(canonicalDoctorId, appointmentDate, startTime);
     if (!isDoctorAvailable) {
       throw new ApiError(400, 'Doctor is not available at the selected date and time or does not exist.');
     }
 
     // 3. Check for double booking
     const existingAppointment = await Appointment.findOne({
-      doctorId,
+      doctorId: canonicalDoctorId,
       appointmentDate,
       startTime,
       status: { $ne: 'CANCELLED' }
@@ -35,7 +126,7 @@ class AppointmentService {
 
     // 4. Assign Queue Number
     const sameDayAppointments = await Appointment.countDocuments({
-      doctorId,
+      doctorId: canonicalDoctorId,
       appointmentDate,
       status: { $ne: 'CANCELLED' }
     });
@@ -44,12 +135,14 @@ class AppointmentService {
     // 5. Create appointment
     const appointment = await Appointment.create({
       patientId,
-      doctorId,
+      patientName: String(patientName || '').trim(),
+      doctorId: canonicalDoctorId,
       doctorName,
       specialty: specialty || '',
       appointmentDate,
       startTime,
       endTime: endTime || startTime,
+      mode: appointmentMode,
       reason,
       consultationFee: consultationFee || 0,
       queueNumber,
@@ -65,10 +158,11 @@ class AppointmentService {
     const { page, limit } = pagination;
     const skip = (page - 1) * limit;
 
-    const [appointments, total] = await Promise.all([
+    const [rawAppointments, total] = await Promise.all([
       Appointment.find(filters).skip(skip).limit(limit).sort({ appointmentDate: -1, startTime: -1 }),
       Appointment.countDocuments(filters)
     ]);
+    const appointments = await this.attachPatientNames(rawAppointments);
 
     return {
       appointments,
@@ -133,12 +227,17 @@ class AppointmentService {
       throw new ApiError(404, 'Appointment not found');
     }
 
-    if (!['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'].includes(status)) {
-      throw new ApiError(400, 'Invalid status');
+    const currentStatus = this._normalizeStatus(appointment.status);
+    const nextStatus = this._assertValidStatus(status);
+    this._assertStatusTransition(currentStatus, nextStatus);
+
+    if (nextStatus === 'COMPLETED' && this._normalizeStatus(appointment.paymentStatus) === 'UNPAID') {
+      throw new ApiError(400, 'Cannot complete an appointment with unpaid status');
     }
 
-    appointment.status = status;
+    appointment.status = nextStatus;
     await appointment.save();
+    await this._syncPatientAppointment(appointment);
     return appointment;
   }
 
@@ -149,18 +248,31 @@ class AppointmentService {
       throw new ApiError(404, 'Appointment not found');
     }
 
-    appointment.paymentStatus = paymentStatus;
+    const normalizedPaymentStatus = this._assertValidPaymentStatus(paymentStatus);
+    const currentPaymentStatus = this._normalizeStatus(appointment.paymentStatus);
+    if (currentPaymentStatus === 'REFUNDED' && normalizedPaymentStatus !== 'REFUNDED') {
+      throw new ApiError(400, 'Cannot change payment status after refund');
+    }
+
+    appointment.paymentStatus = normalizedPaymentStatus;
 
     if (paymentId) {
       appointment.paymentId = paymentId;
     }
 
     // Automatically confirm appointment if paid and currently pending
-    if (paymentStatus === 'PAID' && appointment.status === 'PENDING') {
+    if (normalizedPaymentStatus === 'PAID' && this._normalizeStatus(appointment.status) === 'PENDING') {
       appointment.status = 'CONFIRMED';
     }
 
+    if (normalizedPaymentStatus === 'FAILED' && this._normalizeStatus(appointment.status) === 'CONFIRMED') {
+      appointment.status = 'PENDING';
+    }
+
     await appointment.save();
+    await this._syncPatientAppointment(appointment, {
+      paymentId: appointment.paymentId || null
+    });
     return appointment;
   }
 

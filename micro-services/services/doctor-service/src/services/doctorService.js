@@ -1,8 +1,10 @@
-const mongoose = require('mongoose');
 const Doctor = require('../models/Doctor');
+const DoctorReview = require('../models/DoctorReview');
 const ApiError = require('../utils/ApiError');
 const { fetchPrescriptionsByPatient } = require('./prescriptionServiceClient');
 const { fetchPatientSummary } = require('./patientServiceClient');
+const { fetchDoctorAppointments } = require('./appointmentServiceClient');
+const { fetchDoctorPayments } = require('./paymentServiceClient');
 
 const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const SLOT_STATUS = {
@@ -166,6 +168,26 @@ function toPersistenceSlot(slot) {
   return { start: slot.start, end: slot.end, status: slot.status };
 }
 
+function buildMonthKey(dateValue) {
+  const date = new Date(dateValue || Date.now());
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+async function updateDoctorRatingSummary(doctorId) {
+  const reviews = await DoctorReview.find({ doctorId });
+  const ratingCount = reviews.length;
+  const ratingAverage = ratingCount
+    ? reviews.reduce((sum, item) => sum + Number(item.rating || 0), 0) / ratingCount
+    : 0;
+
+  await Doctor.findByIdAndUpdate(doctorId, {
+    ratingAverage: Number(ratingAverage.toFixed(2)),
+    ratingCount
+  });
+}
+
 function sortDayAvailability(dayAvailability) {
   dayAvailability.slots.sort((a, b) => {
     const aMin = parseTimeToMinutes(a.start);
@@ -236,32 +258,28 @@ async function getDoctorById(id) {
     // Try email as fallback
     const byEmail = await Doctor.findOne({ email: id });
     if (!byEmail) throw new ApiError(404, `Doctor not found with ID/Email: ${id}`);
-    
-    const doctorObj = byEmail.toObject();
-    doctorObj.isAvailable = true;
-    return doctorObj;
+
+    return byEmail;
   }
-  
-  const doctorObj = doctor.toObject();
-  doctorObj.isAvailable = true; 
-  
-  return doctorObj;
+
+  return doctor;
 }
 
 async function updateDoctorById(id, updates) {
-  if (!mongoose.isValidObjectId(id)) throw new ApiError(400, 'Invalid doctor id');
+  const doctor = await getDoctorById(id);
 
   if (updates.email) {
-    const existing = await Doctor.findOne({ email: updates.email, _id: { $ne: id } });
+    const existing = await Doctor.findOne({ email: updates.email, _id: { $ne: doctor._id } });
     if (existing) throw new ApiError(409, 'Doctor with this email already exists');
   }
 
-  const doctor = await Doctor.findByIdAndUpdate(id, updates, {
+  const updated = await Doctor.findByIdAndUpdate(doctor._id, updates, {
     new: true,
     runValidators: true
   });
-  if (!doctor) throw new ApiError(404, 'Doctor not found');
-  return doctor;
+
+  if (!updated) throw new ApiError(404, 'Doctor not found');
+  return updated;
 }
 
 async function addAvailability(id, availabilityItem) {
@@ -336,6 +354,81 @@ async function updateAvailabilitySlotStatus(id, payload) {
   return doctor.availability;
 }
 
+async function updateAvailabilitySlot(id, payload) {
+  const doctor = await getDoctorById(id);
+  const dayKey = String(payload?.day || '').toLowerCase();
+  const dayAvailability = doctor.availability.find(
+    (item) => String(item.day).toLowerCase() === dayKey
+  );
+
+  if (!dayAvailability) {
+    throw new ApiError(404, 'Availability day not found');
+  }
+
+  const slotIndex = dayAvailability.slots.findIndex(
+    (slot) => slot.start === payload.start && slot.end === payload.end
+  );
+
+  if (slotIndex === -1) {
+    throw new ApiError(404, 'Availability slot not found');
+  }
+
+  const nextStart = payload.newStart || payload.start;
+  const nextEnd = payload.newEnd || payload.end;
+  const normalized = normalizeSlot({
+    start: nextStart,
+    end: nextEnd,
+    status: payload.status || dayAvailability.slots[slotIndex].status
+  });
+
+  if (normalized.endMin - normalized.startMin !== dayAvailability.slotDuration) {
+    throw new ApiError(400, 'Updated slot must keep the same slotDuration for the day');
+  }
+
+  const currentSlots = dayAvailability.slots
+    .filter((_, index) => index !== slotIndex)
+    .map((slot) => normalizeSlot(slot));
+
+  if (hasOverlap([...currentSlots, normalized])) {
+    throw new ApiError(400, 'Updated slot overlaps with an existing slot');
+  }
+
+  dayAvailability.slots[slotIndex].start = normalized.start;
+  dayAvailability.slots[slotIndex].end = normalized.end;
+  dayAvailability.slots[slotIndex].status = normalized.status;
+
+  sortDayAvailability(dayAvailability);
+  await doctor.save();
+
+  return doctor.availability;
+}
+
+async function deleteAvailabilitySlot(id, payload) {
+  const doctor = await getDoctorById(id);
+  const dayKey = String(payload?.day || '').toLowerCase();
+  const dayAvailability = doctor.availability.find(
+    (item) => String(item.day).toLowerCase() === dayKey
+  );
+
+  if (!dayAvailability) {
+    throw new ApiError(404, 'Availability day not found');
+  }
+
+  const initialLength = dayAvailability.slots.length;
+  dayAvailability.slots = dayAvailability.slots.filter(
+    (slot) => !(slot.start === payload.start && slot.end === payload.end)
+  );
+
+  if (dayAvailability.slots.length === initialLength) {
+    throw new ApiError(404, 'Availability slot not found');
+  }
+
+  doctor.availability = doctor.availability.filter((item) => item.slots.length > 0);
+  await doctor.save();
+
+  return doctor.availability;
+}
+
 async function getNextAvailableSlot(id) {
   const doctor = await getDoctorById(id);
   if (!doctor.availability || doctor.availability.length === 0) {
@@ -398,6 +491,195 @@ async function getPatientSummary(doctorId, patientId) {
     recentPrescriptions: prescriptionsForDoctor.slice(0, 5),
     reports: patientSummary?.reports || []
   };
+}
+
+async function uploadProfilePicture(id, filePath) {
+  const doctor = await getDoctorById(id);
+  const updated = await Doctor.findByIdAndUpdate(
+    doctor._id,
+    { profilePicture: filePath },
+    { new: true }
+  );
+
+  return updated;
+}
+
+async function listDoctorReviews(doctorId) {
+  await getDoctorById(doctorId);
+
+  const reviews = await DoctorReview.find({ doctorId }).sort({ createdAt: -1 }).limit(100);
+  const doctor = await Doctor.findById(doctorId);
+
+  return {
+    averageRating: doctor?.ratingAverage || 0,
+    totalRatings: doctor?.ratingCount || 0,
+    reviews
+  };
+}
+
+async function submitDoctorReview(doctorId, payload) {
+  await getDoctorById(doctorId);
+
+  const rating = Number(payload?.rating);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    throw new ApiError(400, 'rating must be between 1 and 5');
+  }
+
+  const patientId = String(payload?.patientId || '').trim();
+  if (!patientId) {
+    throw new ApiError(400, 'patientId is required');
+  }
+
+  const appointmentId = String(payload?.appointmentId || '').trim();
+  const reviewIdQuery = {
+    doctorId,
+    patientId,
+    appointmentId
+  };
+
+  const review = await DoctorReview.findOneAndUpdate(
+    reviewIdQuery,
+    {
+      doctorId,
+      patientId,
+      patientName: String(payload?.patientName || '').trim(),
+      appointmentId,
+      rating,
+      review: String(payload?.review || '').trim()
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+      runValidators: true
+    }
+  );
+
+  await updateDoctorRatingSummary(doctorId);
+  return review;
+}
+
+async function getDoctorUpcomingAppointments(doctorId, limit = 10) {
+  await getDoctorById(doctorId);
+
+  const appointments = await fetchDoctorAppointments(doctorId, Math.max(10, Number(limit) || 10));
+  const now = Date.now();
+  const upcoming = appointments
+    .filter((item) => {
+      const appointmentDate = new Date(item?.appointmentDate || 0).getTime();
+      const status = String(item?.status || '').toUpperCase();
+      return appointmentDate >= now && status !== 'CANCELLED';
+    })
+    .slice(0, Number(limit) || 10)
+    .map((item) => ({
+      id: item._id || item.id,
+      patientId: item.patientId,
+      patientName: item.patientName || item.patientId,
+      appointmentDate: item.appointmentDate,
+      appointmentTime: item.startTime,
+      appointmentEndTime: item.endTime,
+      status: item.status,
+      reason: item.reason || item.notes || '',
+      paymentStatus: item.paymentStatus || 'UNPAID',
+      createdAt: item.createdAt || null
+    }));
+
+  return upcoming;
+}
+
+async function getDoctorNotifications(doctorId, limit = 30) {
+  await getDoctorById(doctorId);
+
+  const maxItems = Math.min(Math.max(Number(limit) || 30, 1), 100);
+  const [appointments, payments] = await Promise.all([
+    fetchDoctorAppointments(doctorId, 120),
+    fetchDoctorPayments(doctorId).catch(() => ({
+      payments: []
+    }))
+  ]);
+
+  const appointmentItems = (appointments || []).map((item) => {
+    const status = String(item?.status || 'PENDING').toUpperCase();
+    const createdAt = new Date(item?.createdAt || 0).getTime();
+    const isNewBooking = Number.isFinite(createdAt) && Date.now() - createdAt <= 24 * 60 * 60 * 1000;
+    return {
+      id: `appt-${item._id || item.id}`,
+      type: 'APPOINTMENT',
+      title: isNewBooking
+        ? `New appointment from ${item.patientName || item.patientId || 'patient'}`
+        : `Appointment ${status.toLowerCase()} for ${item.patientName || item.patientId || 'patient'}`,
+      subtitle: `${new Date(item.appointmentDate || Date.now()).toLocaleDateString()} ${item.startTime || 'TBD'} • Payment ${String(item.paymentStatus || 'UNPAID').toUpperCase()}`,
+      actionTo: '/doctor/appointments',
+      actionLabel: 'Open appointments',
+      eventTime: item.createdAt || item.updatedAt || item.appointmentDate
+    };
+  });
+
+  const paymentList = Array.isArray(payments) ? payments : (payments?.payments || []);
+  const paymentItems = paymentList.map((item) => ({
+    id: `pay-${item._id || item.id || item.orderId}`,
+    type: 'PAYMENT',
+    title: `Payment ${String(item.status || 'PENDING').toLowerCase()} for appointment`,
+    subtitle: `LKR ${Number(item.amount || 0).toFixed(2)} • ${item.orderId || 'order'} `,
+    actionTo: '/doctor/earnings',
+    actionLabel: 'Open earnings',
+    eventTime: item.paidAt || item.updatedAt || item.createdAt
+  }));
+
+  return [...appointmentItems, ...paymentItems]
+    .sort((a, b) => new Date(b.eventTime || 0).getTime() - new Date(a.eventTime || 0).getTime())
+    .slice(0, maxItems);
+}
+
+async function getDoctorPatientReports(doctorId, limit = 25) {
+  await getDoctorById(doctorId);
+
+  const appointments = await fetchDoctorAppointments(doctorId, 100);
+  const patientIds = [...new Set(appointments.map((item) => String(item.patientId || '')).filter(Boolean))];
+  const reports = [];
+
+  for (const patientId of patientIds) {
+    if (reports.length >= limit) break;
+
+    try {
+      const summary = await fetchPatientSummary(patientId);
+      const patientName = summary?.patient?.fullName || summary?.patient?.name || patientId;
+
+      for (const report of summary?.reports || []) {
+        reports.push({
+          patientId,
+          patientName,
+          reportId: report._id || report.reportId,
+          fileName: report.fileName,
+          fileUrl: report.fileUrl,
+          reportType: report.reportType,
+          uploadedAt: report.createdAt || report.uploadedAt || null
+        });
+
+        if (reports.length >= limit) break;
+      }
+    } catch (_error) {
+      // Skip a single patient summary failure so dashboard still renders.
+    }
+  }
+
+  return reports;
+}
+
+async function getDoctorEarnings(doctorId) {
+  await getDoctorById(doctorId);
+
+  const paymentSummary = await fetchDoctorPayments(doctorId);
+  if (!paymentSummary) {
+    return {
+      totalEarnings: 0,
+      currentMonthEarnings: 0,
+      completedPaidConsultations: 0,
+      monthlyHistory: []
+    };
+  }
+
+  return paymentSummary;
 }
 
 async function syncDoctorFromAdmin(payload, headers = {}) {
@@ -466,10 +748,19 @@ module.exports = {
   registerDoctor,
   getDoctorById,
   updateDoctorById,
+  uploadProfilePicture,
   addAvailability,
   getAvailability,
   updateAvailabilitySlotStatus,
+  updateAvailabilitySlot,
+  deleteAvailabilitySlot,
   getNextAvailableSlot,
+  submitDoctorReview,
+  listDoctorReviews,
+  getDoctorUpcomingAppointments,
+  getDoctorPatientReports,
+  getDoctorEarnings,
+  getDoctorNotifications,
   getPatientSummary,
   syncDoctorFromAdmin
 };

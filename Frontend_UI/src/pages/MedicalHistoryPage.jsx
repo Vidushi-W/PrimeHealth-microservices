@@ -111,6 +111,9 @@ function MedicalHistoryPage({ auth }) {
     [activeFilter, search, timeline],
   );
 
+  const totalEvents = timeline.length;
+  const visibleEvents = filteredTimeline.length;
+
   return (
     <div className="dashboard animate-fade-in">
       <section className="welcome-card glass">
@@ -145,6 +148,11 @@ function MedicalHistoryPage({ auth }) {
             ))}
           </div>
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="badge-soft">Total events: {totalEvents}</span>
+          <span className="badge-soft">Visible: {visibleEvents}</span>
+          <span className="badge-soft">Filter: {activeFilter}</span>
+        </div>
       </section>
 
       <section className="dashboard-section glass">
@@ -164,7 +172,7 @@ function MedicalHistoryPage({ auth }) {
               const meta = TYPE_META[item.type] || { icon: 'PH', label: 'Medical event' };
 
               return (
-                <article className="history-card" key={item.id}>
+                <article className="history-card panel p-4" key={item.id}>
                   <div className="history-card-icon" aria-hidden="true">{meta.icon}</div>
 
                   <div className="history-card-main">
