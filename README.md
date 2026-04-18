@@ -40,7 +40,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 ### 3. Appointment + payment module
 
 - Create, list, filter, and **cancel** appointments; status updates for doctors/admins
-- **Payment initiation** (PayHere or simulated path), **confirm**, **history**, **invoice** download where applicable
+- **Payment initiation** (PayHere), **confirm**, **history**, **invoice** download where applicable
 - **Queue** position API for patients (where exposed)
 - Internal **payment-status** sync into appointments (service token when configured)
 
