@@ -407,7 +407,6 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 | Team member | Primary ownership |
 |-------------|-------------------|
-
 | **J.V.S.Weerasinghe** | Doctor module + prescription management |
 | **M.A.T.S.Meewalaarachchi** | Patient module + AI symptom checker |
 | **H.G.S.Dias** | Telemedicine module + analytics / admin service |
