@@ -38,6 +38,12 @@ coverage/
 # OS and editor
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+.AppleDouble
+.Spotlight-V100
+.Trashes
+*.stackdump
 .idea/
 .vscode/
 *.swp
@@ -98,3 +104,22 @@ micro-services/services/prescription-service/storage/
 # Optional local SSL / keys (keep real certs out of Git)
 *.pem
 *.key
+
+# Local Docker / DB data dirs (volume mounts or dumps — never commit)
+mongo-data/
+mongodb-data/
+docker-data/
+**/docker-data/
+
+# Cloud sync duplicate files (e.g. OneDrive)
+*sync-conflict*
+
+# Python (utility scripts / tooling)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# E2E / browser test output (if added later)
+playwright-report/
+test-results/

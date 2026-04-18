@@ -85,10 +85,17 @@ function getJoinWindowState(appointment) {
 const STATUS_FLOW = ['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'];
 const STATUS_FILTER_OPTIONS = ['ALL', 'PENDING', 'CONFIRMED', 'COMPLETED'];
 
+const PAYMENT_SCOPE_OPTIONS = [
+  { id: 'PAID', label: 'Paid (active)' },
+  { id: 'NOT_PAID', label: 'Awaiting payment' },
+  { id: 'ALL', label: 'All payments' },
+];
+
 export default function DoctorAppointmentsPage({ auth }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [paymentScope, setPaymentScope] = useState('PAID');
   const [updatingId, setUpdatingId] = useState('');
   const [search, setSearch] = useState('');
 
@@ -98,7 +105,15 @@ export default function DoctorAppointmentsPage({ auth }) {
     const load = async () => {
       try {
         setLoading(true);
-        const list = await fetchDoctorAppointments(auth);
+        const params = {
+          status: statusFilter,
+          page: 1,
+          limit: 200,
+        };
+        if (paymentScope === 'PAID') {
+          params.paymentStatus = 'PAID';
+        }
+        const list = await fetchDoctorAppointments(auth, params);
         if (!mounted) return;
         setAppointments(Array.isArray(list) ? list : []);
       } catch (error) {
@@ -113,19 +128,23 @@ export default function DoctorAppointmentsPage({ auth }) {
     return () => {
       mounted = false;
     };
-  }, [auth]);
+  }, [auth, statusFilter, paymentScope]);
 
   const filteredAppointments = useMemo(() => {
-    const visible = appointments
+    let rows = appointments
       .filter((item) => String(item.status || '').toUpperCase() !== 'CANCELLED')
       .sort((left, right) => getCreatedTimestamp(right) - getCreatedTimestamp(left));
 
-    if (statusFilter === 'ALL') {
-      return visible;
+    if (paymentScope === 'NOT_PAID') {
+      rows = rows.filter((item) => {
+        const ps = String(item.paymentStatus || '').toUpperCase();
+        const st = String(item.status || '').toUpperCase();
+        return ps !== 'PAID' && st !== 'CONFIRMED';
+      });
     }
 
-    return visible.filter((item) => String(item.status || '').toUpperCase() === statusFilter);
-  }, [appointments, statusFilter]);
+    return rows;
+  }, [appointments, paymentScope]);
 
   const visibleAppointments = useMemo(() => {
     if (!search.trim()) return filteredAppointments;
@@ -148,9 +167,18 @@ export default function DoctorAppointmentsPage({ auth }) {
       const updated = await updateAppointmentStatus(auth, appointment._id || appointment.id, nextStatus);
       const updatedId = String(updated?._id || updated?.id || appointment._id || appointment.id);
 
-      setAppointments((current) =>
-        current.map((item) => (String(item._id || item.id) === updatedId ? { ...item, ...updated } : item))
-      );
+      setAppointments((current) => {
+        const merged = current.map((item) =>
+          String(item._id || item.id) === updatedId ? { ...item, ...updated } : item
+        );
+
+        // Keep active tab accurate without waiting for the next fetch cycle.
+        if (statusFilter !== 'ALL' && String(nextStatus).toUpperCase() !== statusFilter) {
+          return merged.filter((item) => String(item._id || item.id) !== updatedId);
+        }
+
+        return merged;
+      });
       toast.success(`Appointment marked ${nextStatus.toLowerCase()}`);
     } catch (error) {
       toast.error(error.message || 'Failed to update appointment status');
@@ -180,6 +208,18 @@ export default function DoctorAppointmentsPage({ auth }) {
               </button>
             ))}
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {PAYMENT_SCOPE_OPTIONS.map((scope) => (
+              <button
+                key={scope.id}
+                type="button"
+                onClick={() => setPaymentScope(scope.id)}
+                className={`rounded-full px-3 py-2 text-xs font-semibold ${paymentScope === scope.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                {scope.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="mt-4">
           <input
@@ -204,6 +244,8 @@ export default function DoctorAppointmentsPage({ auth }) {
           const appointmentId = String(item._id || item.id);
           const currentStatus = String(item.status || 'PENDING').toUpperCase();
           const joinWindow = getJoinWindowState(item);
+          const paymentStatus = String(item.paymentStatus || '').toUpperCase();
+          const paymentReady = paymentStatus === 'PAID' || currentStatus === 'CONFIRMED';
 
           return (
             <article key={appointmentId} className="panel p-5">
@@ -213,6 +255,7 @@ export default function DoctorAppointmentsPage({ auth }) {
                   <h2 className="mt-1 text-xl font-bold text-slate-900">Patient {resolvePatientDisplayName(item)}</h2>
                   <p className="mt-1 text-sm text-slate-600">{formatDate(item.appointmentDate)} • {item.startTime || 'TBD'} - {item.endTime || 'TBD'}</p>
                   {item.reason ? <p className="mt-2 text-sm text-slate-500">Reason: {item.reason}</p> : null}
+                  <p className="mt-2 text-xs font-semibold text-slate-600">Payment: {paymentStatus || 'UNPAID'}</p>
                 </div>
                 <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{currentStatus}</span>
               </div>
@@ -229,12 +272,14 @@ export default function DoctorAppointmentsPage({ auth }) {
                     Mark {status.toLowerCase()}
                   </button>
                 ))}
-                {(item.mode || '').toLowerCase() === 'online' && joinWindow.canJoin ? (
+                {(item.mode || '').toLowerCase() === 'online' && paymentReady ? (
                   <Link className="button-primary" to={`/telemedicine?appointmentId=${encodeURIComponent(appointmentId)}`}>Join telemedicine</Link>
                 ) : null}
               </div>
               {(item.mode || '').toLowerCase() === 'online' ? (
-                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{joinWindow.label}</p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  {paymentReady ? joinWindow.label : 'Complete payment before joining video.'}
+                </p>
               ) : null}
             </article>
           );

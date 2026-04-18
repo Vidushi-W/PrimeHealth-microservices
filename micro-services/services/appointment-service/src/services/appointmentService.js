@@ -4,6 +4,10 @@ const doctorClient = require('./doctorClient');
 const { fetchDoctorById } = require('./doctorServiceClient');
 const { fetchPatientSummary } = require('./patientServiceClient');
 const { syncPatientAppointmentStatus } = require('./patientAppointmentClient');
+const {
+  notifyAppointmentBooked,
+  notifyConsultationCompleted
+} = require('./notificationServiceClient');
 
 const APPOINTMENT_STATUS = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 const PAYMENT_STATUS = ['UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED'];
@@ -87,12 +91,30 @@ class AppointmentService {
 
   // ─── Create Appointment ──────────────────────────────────
   async createAppointment(data) {
-    const { patientId, patientName, doctorId, doctorName, specialty, appointmentDate, startTime, endTime, mode, reason, consultationFee } = data;
+    const {
+      patientId,
+      patientName,
+      patientEmail,
+      patientPhone,
+      doctorId,
+      doctorName,
+      doctorEmail,
+      doctorPhone,
+      specialty,
+      appointmentDate,
+      startTime,
+      endTime,
+      mode,
+      reason,
+      consultationFee
+    } = data;
     const appointmentMode = String(mode || 'online').toLowerCase() === 'physical' ? 'physical' : 'online';
 
     let canonicalDoctorId = String(doctorId || '').trim();
+    let resolvedDoctor = null;
     try {
       const doctor = await fetchDoctorById(canonicalDoctorId);
+      resolvedDoctor = doctor;
       canonicalDoctorId = String(doctor?.externalRef || doctor?.uniqueId || doctor?._id || canonicalDoctorId);
     } catch (_error) {
       // If lookup fails, continue with provided ID for backward compatibility.
@@ -148,6 +170,22 @@ class AppointmentService {
       queueNumber,
       status: 'PENDING',
       paymentStatus: 'UNPAID'
+    });
+
+    notifyAppointmentBooked({
+      appointmentId: String(appointment._id),
+      appointmentDate,
+      startTime,
+      doctorName: doctorName || resolvedDoctor?.name || 'Doctor',
+      patientName: String(patientName || '').trim(),
+      doctor: {
+        email: doctorEmail || resolvedDoctor?.email || '',
+        phone: doctorPhone || resolvedDoctor?.phoneNumber || ''
+      },
+      patient: {
+        email: patientEmail || '',
+        phone: patientPhone || ''
+      }
     });
 
     return appointment;
@@ -238,6 +276,30 @@ class AppointmentService {
     appointment.status = nextStatus;
     await appointment.save();
     await this._syncPatientAppointment(appointment);
+
+    if (nextStatus === 'COMPLETED') {
+      let doctorInfo = null;
+      try {
+        doctorInfo = await fetchDoctorById(String(appointment.doctorId));
+      } catch (_error) {
+        doctorInfo = null;
+      }
+
+      notifyConsultationCompleted({
+        appointmentId: String(appointment._id),
+        appointmentDate: appointment.appointmentDate,
+        startTime: appointment.startTime,
+        completedAt: new Date().toISOString(),
+        doctorName: appointment.doctorName || doctorInfo?.name || 'Doctor',
+        patientName: appointment.patientName || 'Patient',
+        doctor: {
+          email: doctorInfo?.email || '',
+          phone: doctorInfo?.phoneNumber || ''
+        },
+        patient: {}
+      });
+    }
+
     return appointment;
   }
 

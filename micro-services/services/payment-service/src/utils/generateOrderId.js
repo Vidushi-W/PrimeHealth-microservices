@@ -1,13 +1,11 @@
 const crypto = require('crypto');
 
 /**
- * Generates a unique order ID for payment tracking
- * Format: ORD-<timestamp>-<random>
+ * Generates a unique order ID for payment tracking.
+ * PayHere-hosted checkout is safest with alphanumeric IDs (no hyphens).
  */
 function generateOrderId() {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = crypto.randomBytes(4).toString('hex').toUpperCase();
-  return `ORD-${timestamp}-${random}`;
+  return `PH${Date.now()}${crypto.randomBytes(5).toString('hex')}`;
 }
 
 module.exports = { generateOrderId };

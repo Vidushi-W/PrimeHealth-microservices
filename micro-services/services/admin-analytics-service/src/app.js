@@ -13,6 +13,7 @@ const Transaction = require('./models/Transaction');
 const Appointment = require('./models/Appointment');
 const AuditLog = require('./models/AuditLog');
 const { getNextUniqueIdForRole, syncCounterForRole } = require('./utils/uniqueUserId');
+const adminAnalyticsRoutes = require('./routes/adminAnalyticsRoutes');
 
 const { requirePermission, RBAC } = auth;
 
@@ -29,6 +30,7 @@ const CROSS_SERVICE_SYNC_STRICT = process.env.CROSS_SERVICE_SYNC_STRICT === 'tru
 
 app.use(cors());
 app.use(express.json());
+app.use('/api/admin/analytics', requireServiceReady, adminAnalyticsRoutes);
 
 const hasRequiredConfig = () => Boolean(process.env.MONGO_URI && process.env.JWT_SECRET);
 const isDatabaseReady = () => mongoose.connection.readyState === 1;
@@ -1288,85 +1290,6 @@ app.patch('/api/admin/users/admins/:id/password', requireServiceReady, auth, req
         return res.json({ success: true, message: 'Admin password updated successfully.', admin: toSafeAdmin(admin) });
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Failed to update admin password', error: error.message });
-    }
-});
-
-// --- Analytics Endpoints ---
-
-app.get('/api/admin/analytics/summary', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
-    try {
-        const [totalAdmins, totalDoctors, totalPatients] = await Promise.all([
-            Admin.countDocuments(),
-            Doctor.countDocuments(),
-            Patient.countDocuments()
-        ]);
-
-        const revenueAggregation = await Transaction.aggregate([
-            {
-                $group: {
-                    _id: null,
-                    total: { $sum: '$amount' }
-                }
-            }
-        ]);
-
-        const totalRevenue = revenueAggregation.length ? revenueAggregation[0].total : 0;
-
-        return res.json({
-            totalUsers: totalAdmins + totalDoctors + totalPatients,
-            totalDoctors,
-            totalPatients,
-            revenue: {
-                total: totalRevenue,
-                currency: 'LKR'
-            }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'Failed to fetch analytics summary', error: error.message });
-    }
-});
-
-app.get('/api/admin/analytics/appointments', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
-    try {
-        const byDay = await Appointment.aggregate([
-            {
-                $group: {
-                    _id: {
-                        $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate' }
-                    },
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { _id: 1 } },
-            {
-                $project: {
-                    _id: 0,
-                    date: '$_id',
-                    count: 1
-                }
-            }
-        ]);
-
-        const byStatusAggregation = await Appointment.aggregate([
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        const byStatus = byStatusAggregation.reduce((acc, item) => {
-            if (item._id) {
-                acc[item._id] = item.count;
-            }
-
-            return acc;
-        }, {});
-
-        return res.json({ byDay, byStatus });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'Failed to fetch appointment analytics', error: error.message });
     }
 });
 

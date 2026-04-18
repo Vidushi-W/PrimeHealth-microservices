@@ -13,9 +13,9 @@ export default function Navigation() {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sea to-brand-700 flex items-center justify-center">
-            <span className="text-white font-bold text-lg">✦</span>
+            <span className="text-base font-bold text-white">✦</span>
           </div>
-          <span className="text-2xl font-black text-slate-900">PrimeHealth</span>
+          <span className="text-xl font-bold text-slate-900">PrimeHealth</span>
         </Link>
 
         {/* Desktop Menu */}

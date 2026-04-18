@@ -117,9 +117,20 @@ export async function fetchDoctorById(doctorId) {
   return unwrap(response);
 }
 
-export async function fetchDoctorAppointments(token) {
+export async function fetchDoctorAppointments(authOrToken, filters = {}) {
+  const params = {};
+  if (filters.status && String(filters.status).toUpperCase() !== 'ALL') {
+    params.status = String(filters.status).toUpperCase();
+  }
+  if (filters.paymentStatus && String(filters.paymentStatus).trim()) {
+    params.paymentStatus = String(filters.paymentStatus).toUpperCase();
+  }
+  if (filters.page) params.page = filters.page;
+  if (filters.limit) params.limit = filters.limit;
+
   const response = await appointmentApi.get('/api/appointments', {
-    headers: authHeaders(token)
+    headers: authHeaders(authOrToken),
+    params
   });
   return unwrapAppointmentCollection(response);
 }
@@ -226,6 +237,35 @@ export async function initiatePayment(authOrToken, payload) {
   return unwrap(response);
 }
 
+/**
+ * `SIMULATED` (default): no PayHere — server creates a pending payment then `/confirm` marks it paid.
+ * `PAYHERE`: returns hosted checkout; caller must POST the form to PayHere.
+ */
+export function getConfiguredPaymentProvider() {
+  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'SIMULATED').trim().toUpperCase();
+  return v === 'PAYHERE' ? 'PAYHERE' : 'SIMULATED';
+}
+
+/**
+ * @returns {Promise<{ kind: 'payhere', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
+ */
+export async function initiatePaymentFlow(authOrToken, payload) {
+  const provider = payload.provider || getConfiguredPaymentProvider();
+  const initiated = await initiatePayment(authOrToken, { ...payload, provider });
+
+  if (initiated?.checkout?.gateway === 'PAYHERE') {
+    return { kind: 'payhere', initiated };
+  }
+
+  const orderId = initiated?.orderId;
+  if (!orderId) {
+    throw new Error('Payment order was not created');
+  }
+
+  const confirmed = await confirmPayment(authOrToken, orderId);
+  return { kind: 'simulated', initiated, confirmed };
+}
+
 export function submitHostedCheckout(checkout, target = '_self') {
   if (!checkout?.actionUrl || !checkout?.fields) {
     throw new Error('Checkout payload is incomplete.');
@@ -247,6 +287,20 @@ export function submitHostedCheckout(checkout, target = '_self') {
   document.body.appendChild(form);
   form.submit();
   document.body.removeChild(form);
+}
+
+/**
+ * PayHere hosted checkout lives on PayHere’s domain (sandbox or live), not inside the SPA.
+ * Default `_blank` opens it in a new tab so payment is clearly separate from PrimeHealth.
+ * Set `VITE_PAYHERE_CHECKOUT_TARGET=_self` in `.env.local` to use the same tab instead.
+ */
+export function getPayHereCheckoutTarget() {
+  const raw = String(import.meta.env.VITE_PAYHERE_CHECKOUT_TARGET || '_blank').trim();
+  return raw === '_self' || raw === '_blank' ? raw : '_blank';
+}
+
+export function submitPayHereHostedCheckout(checkout) {
+  submitHostedCheckout(checkout, getPayHereCheckoutTarget());
 }
 
 export async function confirmPayment(authOrToken, orderId) {

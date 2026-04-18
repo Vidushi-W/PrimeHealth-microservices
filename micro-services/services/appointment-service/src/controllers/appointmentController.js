@@ -29,8 +29,12 @@ class AppointmentController {
       const appointment = await appointmentService.createAppointment({
         patientId: req.user ? req.user.id : req.body.patientId,
         patientName: req.user ? req.user.fullName : req.body.patientName,
+        patientEmail: req.user ? req.user.email : req.body.patientEmail,
+        patientPhone: req.body.patientPhone,
         doctorId: req.body.doctorId,
         doctorName: req.body.doctorName,
+        doctorEmail: req.body.doctorEmail,
+        doctorPhone: req.body.doctorPhone,
         specialty: req.body.specialty,
         appointmentDate: req.body.appointmentDate,
         startTime: req.body.startTime,

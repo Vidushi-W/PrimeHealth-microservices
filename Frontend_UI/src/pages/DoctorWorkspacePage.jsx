@@ -128,6 +128,7 @@ export default function DoctorWorkspacePage({ auth }) {
     () => doctorSessions.filter((item) => item?.status === 'live').length,
     [doctorSessions]
   );
+  const availabilityPath = doctor?._id || doctor?.id ? `/doctors/${doctor?._id || doctor?.id}` : '/doctors';
 
   return (
     <div className="space-y-7 animate-fade-up">
@@ -144,7 +145,7 @@ export default function DoctorWorkspacePage({ auth }) {
 
             <div className="mt-6 flex flex-wrap gap-3">
               <Link className="button-primary" to="/doctor/profile">Edit profile</Link>
-              <Link className="button-secondary" to="/doctors">Availability management</Link>
+              <Link className="button-secondary" to={availabilityPath}>Availability management</Link>
               <Link className="button-secondary" to="/doctor/earnings">Earnings</Link>
             </div>
           </div>

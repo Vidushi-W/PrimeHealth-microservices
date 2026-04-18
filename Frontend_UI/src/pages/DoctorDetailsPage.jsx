@@ -18,8 +18,9 @@ import {
 } from '../services/doctorService';
 import { formatDateTime } from '../utils/formatters';
 import { getStoredAuth } from '../services/platformApi';
+import { getStoredDoctorIdentity } from '../utils/currentDoctor';
 
-function DoctorDetailsPage() {
+function DoctorDetailsPage({ auth }) {
   const { doctorId } = useParams();
   const [doctor, setDoctor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +56,34 @@ function DoctorDetailsPage() {
     if (!doctor?.availability) return [];
     return [...doctor.availability];
   }, [doctor]);
+
+  const role = String(auth?.user?.role || getStoredAuth()?.user?.role || '').toLowerCase();
+  const isDoctorViewer = role === 'doctor';
+  const identity = getStoredDoctorIdentity();
+
+  const canManageAvailability = useMemo(() => {
+    if (!isDoctorViewer || !doctor) return false;
+
+    const viewerIds = [
+      auth?.user?.id,
+      auth?.user?._id,
+      auth?.user?.userId,
+      identity.id
+    ]
+      .filter(Boolean)
+      .map((value) => String(value));
+    const viewerEmail = String(auth?.user?.email || identity.email || '').toLowerCase();
+
+    const doctorIds = [doctor?._id, doctor?.id, doctor?.doctorId]
+      .filter(Boolean)
+      .map((value) => String(value));
+    const doctorEmail = String(doctor?.email || '').toLowerCase();
+
+    const sameById = doctorIds.some((id) => viewerIds.includes(id));
+    const sameByEmail = viewerEmail && doctorEmail && viewerEmail === doctorEmail;
+
+    return sameById || sameByEmail;
+  }, [auth?.user, doctor, identity.email, identity.id, isDoctorViewer]);
 
   const handleGenerateSlots = async (payload) => {
     try {
@@ -243,31 +272,41 @@ function DoctorDetailsPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+    <div className="space-y-6">
+      <section className="panel p-5">
+        <div className="flex flex-col gap-3">
           <Link to="/" className="text-sm font-semibold text-brand-700 hover:text-brand-800">
             Back to doctor list
           </Link>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-900">{doctor.name}</h2>
-          <p className="mt-2 text-base text-slate-500">
-            {doctor.specialization} | {doctor.experience} years of experience
+          <h2 className="text-4xl font-semibold tracking-tight text-slate-900">{doctor.name}</h2>
+          <p className="text-sm text-slate-600">
+            {doctor.specialization} | {doctor.experience} years experience
           </p>
-          <p className="mt-1 text-sm text-slate-400">{doctor.email}</p>
+          <p className="text-sm text-slate-500">{doctor.email}</p>
         </div>
-      </div>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard label="Specialization" value={doctor.specialization} />
-        <SummaryCard label="Experience" value={`${doctor.experience} years`} />
-        <SummaryCard
-          label="Availability Days"
-          value={String(doctor.availability?.length || 0)}
-          helper="Configured scheduling days"
-        />
       </section>
 
-      <AvailabilityForm onSubmit={handleGenerateSlots} submitting={submittingAvailability} />
+      <section className="grid gap-2.5 md:grid-cols-3">
+        {[
+          ['Specialization', doctor.specialization],
+          ['Experience', `${doctor.experience} years`],
+          ['Availability Days', String(doctor.availability?.length || 0), 'Configured scheduling days']
+        ].map(([label, value, helper]) => (
+          <div key={label} className="panel p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-600">{label}</p>
+            <p className="mt-1 text-2xl font-semibold leading-none text-slate-900">{value}</p>
+            {helper ? <p className="mt-1.5 text-[11px] text-slate-500">{helper}</p> : null}
+          </div>
+        ))}
+      </section>
+
+      {canManageAvailability ? (
+        <AvailabilityForm onSubmit={handleGenerateSlots} submitting={submittingAvailability} />
+      ) : (
+        <section className="panel p-5 text-sm text-slate-600">
+          Availability for this doctor is read-only. You can only manage your own schedule.
+        </section>
+      )}
 
       <section className="space-y-5">
         <div>
@@ -305,10 +344,12 @@ function DoctorDetailsPage() {
                       <SlotCard
                         key={slotKey}
                         slot={slot}
-                        disabled={updatingSlot === slotKey}
-                        onToggleStatus={() => handleToggleSlotStatus(availabilityItem.day, slot)}
-                        onEdit={() => handleEditSlot(availabilityItem.day, slot)}
-                        onDelete={() => handleDeleteSlot(availabilityItem.day, slot)}
+                        disabled={!canManageAvailability || updatingSlot === slotKey}
+                        onToggleStatus={
+                          canManageAvailability ? () => handleToggleSlotStatus(availabilityItem.day, slot) : undefined
+                        }
+                        onEdit={canManageAvailability ? () => handleEditSlot(availabilityItem.day, slot) : undefined}
+                        onDelete={canManageAvailability ? () => handleDeleteSlot(availabilityItem.day, slot) : undefined}
                       />
                     );
                   })}

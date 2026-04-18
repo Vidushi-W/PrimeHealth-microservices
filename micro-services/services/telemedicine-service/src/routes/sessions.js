@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { auth, requireRole } = require('../middleware/auth');
 const ConsultationSession = require('../models/ConsultationSession');
-const { canAccessSession, canJoinSessionNow } = require('../services/sessionAccess');
+const { canAccessSession, assertTelemedicineVideoAccess } = require('../services/sessionAccess');
 const { getRoomName, generateVideoSessionPayload } = require('../services/videoProviders');
 
 const router = express.Router();
@@ -39,7 +39,8 @@ const loadSession = async (sessionId) => {
 
 router.use(auth);
 
-router.post('/', requireRole('doctor', 'patient', 'admin'), async (req, res) => {
+/** Session creation: doctor, patient (self-only), or admin. */
+router.post('/', requireRole('doctor', 'admin', 'patient'), async (req, res) => {
     try {
         const {
             appointmentId = '',
@@ -97,10 +98,21 @@ router.post('/', requireRole('doctor', 'patient', 'admin'), async (req, res) => 
             });
         }
 
-        const roomName = getRoomName(String(appointmentId || '').trim());
+        const trimmedAppointmentId = String(appointmentId || '').trim();
+        if (trimmedAppointmentId) {
+            const existingForAppointment = await ConsultationSession.findOne({ appointmentId: trimmedAppointmentId });
+            if (existingForAppointment) {
+                return res.status(200).json({
+                    success: true,
+                    data: parseSessionDocument(existingForAppointment)
+                });
+            }
+        }
+
+        const roomName = getRoomName(trimmedAppointmentId);
 
         const session = await ConsultationSession.create({
-            appointmentId: String(appointmentId || '').trim(),
+            appointmentId: trimmedAppointmentId,
             doctorId: String(doctorId).trim(),
             patientId: String(patientId).trim(),
             scheduledStartAt: startDate,
@@ -188,7 +200,7 @@ router.get('/:sessionId', async (req, res) => {
     }
 });
 
-router.post('/:sessionId/start', async (req, res) => {
+router.post('/:sessionId/start', requireRole('doctor', 'admin'), async (req, res) => {
     try {
         const session = await loadSession(req.params.sessionId);
 
@@ -215,6 +227,19 @@ router.post('/:sessionId/start', async (req, res) => {
 
         session.status = 'live';
         session.startedAt = session.startedAt || new Date();
+        const nowIso = new Date().toISOString();
+        session.metadata = {
+            ...(session.metadata || {}),
+            doctorHasStarted: true,
+            participants: {
+                ...((session.metadata || {}).participants || {}),
+                doctor: (session.metadata || {}).participants?.doctor || {
+                    joinedAt: nowIso,
+                    userId: req.user.userId,
+                    via: 'start'
+                }
+            }
+        };
         await session.save();
 
         return res.json({
@@ -247,10 +272,11 @@ router.post('/:sessionId/join', async (req, res) => {
             });
         }
 
-        const joinAccess = canJoinSessionNow(session);
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
                 message: joinAccess.reason
             });
         }
@@ -384,10 +410,11 @@ router.post('/:sessionId/video-token', async (req, res) => {
             });
         }
 
-        const joinAccess = canJoinSessionNow(session);
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
                 message: joinAccess.reason
             });
         }

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { normalizeAuthResponse, signIn, signUp } from '../services/platformApi';
-import Navigation from '../components/Navigation';
 import { Card, Button, Input, Select, Alert } from '../components/SharedUI';
+import authMarketingBg from '../assets/images/auth-marketing-bg.png';
 
 const registerInitial = {
   fullName: '',
@@ -114,100 +114,64 @@ export default function AuthPage({ mode = 'login', onAuth }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
-      <Navigation />
+    <div className="min-h-[calc(100dvh-4.75rem)] bg-[linear-gradient(180deg,#f8fbff_0%,#f2f7fb_48%,#eef4f8_100%)] pb-8 pt-20 sm:pt-24">
+      <div className="mx-auto grid min-h-[calc(100dvh-7rem)] max-w-7xl grid-cols-1 items-stretch gap-6 px-5 md:px-8 lg:grid-cols-2 lg:gap-8 lg:px-10">
+        {/* Left side - Marketing container */}
+        <div className="hidden h-full lg:block">
+          <div className="relative h-full min-h-[520px] overflow-hidden rounded-[28px] border border-slate-200/70 bg-slate-900 shadow-[0_30px_60px_-24px_rgba(12,56,86,0.36)]">
+            <img
+              src={authMarketingBg}
+              alt="Medical professionals in a modern clinic"
+              className="absolute inset-0 h-full w-full object-cover object-[center_22%]"
+              decoding="async"
+            />
+            <div className="absolute inset-0 bg-gradient-to-br from-brand-900/60 via-sea/28 to-brand-700/20" />
+            <div className="absolute inset-0 bg-gradient-to-t from-brand-950/72 via-brand-900/10 to-transparent" />
 
-      <div className="pt-20 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto px-6 md:px-8 lg:px-12 min-h-screen items-center">
-        {/* Left side - Brand message */}
-        <div className="hidden lg:flex flex-col justify-center items-start gap-8">
-          <div>
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 border border-brand-200 mb-6">
-              <span className="w-2 h-2 bg-sea rounded-full" />
-              <span className="text-sm font-medium text-brand-700">Secure & Trusted</span>
-            </div>
-
-            <h1 className="text-5xl font-bold text-gray-900 mb-6">
-              Healthcare that works for you.
-            </h1>
-
-            <p className="text-xl text-gray-600 leading-relaxed mb-8">
-              Whether you're a patient seeking quality care or a doctor managing your practice, PrimeHealth connects you to better healthcare experiences.
-            </p>
-          </div>
-
-          {/* Features list */}
-          <div className="space-y-4 w-full">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-green-600 text-2xl">✓</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Instant Booking</p>
-                <p className="text-gray-600 text-sm">Book appointments in seconds</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 text-2xl">✓</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Video Consultations</p>
-                <p className="text-gray-600 text-sm">Secure telemedicine from home</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-purple-600 text-2xl">✓</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Safe & Encrypted</p>
-                <p className="text-gray-600 text-sm">Bank-level security for your data</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Trust badges */}
-          <div className="pt-8 border-t border-gray-200">
-            <p className="text-sm text-gray-600 font-semibold mb-4">Trusted by</p>
-            <div className="flex gap-3 flex-wrap">
-              <div className="px-3 py-2 bg-gray-800 text-white rounded-lg text-xs font-semibold">
-                250K+ Users
-              </div>
-              <div className="px-3 py-2 bg-gray-800 text-white rounded-lg text-xs font-semibold">
-                HIPAA Compliant
-              </div>
-              <div className="px-3 py-2 bg-gray-800 text-white rounded-lg text-xs font-semibold">
-                ISO 27001
+            <div className="relative z-10 flex h-full items-start p-8">
+              <div className="flex h-full max-w-xl flex-col text-white [text-shadow:0_3px_14px_rgba(2,6,23,0.55)]">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-100/95">
+                    Welcome to the future of healthcare
+                  </p>
+                  <h1 className="mt-6 font-serif text-[2.05rem] font-bold leading-tight tracking-tight text-white">
+                    Healthcare that works for you.
+                  </h1>
+                </div>
+                <p className="mt-auto max-w-lg text-base leading-relaxed text-white/90">
+                  Secure, modern care for patients and doctors in one place.
+                </p>
               </div>
             </div>
           </div>
         </div>
 
         {/* Right side - Auth form */}
-        <Card className="shadow-hover border-gray-300">
+        <Card
+          className="h-full border-slate-200/80 bg-white/95 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.32)] lg:min-h-[520px]"
+          hoverable={false}
+        >
           {/* Tab switcher */}
-          <div className="flex gap-2 mb-8 bg-gray-100 p-1 rounded-lg">
+          <div className="mb-7 flex gap-2 rounded-xl bg-slate-100/90 p-1">
             <Link
               to="/login"
-              className={`flex-1 py-2 px-4 rounded-md font-semibold text-center transition-all duration-300 ${
+              className={`flex-1 rounded-lg px-4 py-2.5 text-center text-sm font-semibold transition-all duration-200 ${
                 isLogin
-                  ? 'bg-white text-sea shadow-md'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-white text-sea shadow-sm ring-1 ring-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Login
+              Sign in
             </Link>
             <Link
               to="/register"
-              className={`flex-1 py-2 px-4 rounded-md font-semibold text-center transition-all duration-300 ${
+              className={`flex-1 rounded-lg px-4 py-2.5 text-center text-sm font-semibold transition-all duration-200 ${
                 !isLogin
-                  ? 'bg-white text-sea shadow-md'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-white text-sea shadow-sm ring-1 ring-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Register
+              Sign up
             </Link>
           </div>
 
@@ -216,10 +180,10 @@ export default function AuthPage({ mode = 'login', onAuth }) {
           )}
 
           {isLogin ? (
-            <form onSubmit={submitLogin} className="space-y-6">
+            <form onSubmit={submitLogin} className="space-y-5">
               <div>
-                <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-                <p className="text-gray-600">Sign in to your PrimeHealth account</p>
+                <h2 className="mb-1 font-serif text-3xl font-bold text-slate-900">Welcome back</h2>
+                <p className="text-slate-600">Sign in to your PrimeHealth account</p>
               </div>
 
               <Input
@@ -249,69 +213,70 @@ export default function AuthPage({ mode = 'login', onAuth }) {
                 type="submit"
                 disabled={loading}
               >
-                {loading ? 'Signing in...' : 'Sign In'}
+                {loading ? 'Signing in...' : 'Sign in'}
               </Button>
 
-              <p className="text-center text-gray-600 text-sm">
-                Don't have an account?{' '}
+              <p className="text-center text-sm text-slate-600">
+                Don&apos;t have an account?{' '}
                 <Link to="/register" className="text-sea font-semibold hover:underline">
-                  Create one
+                  Sign up
                 </Link>
               </p>
             </form>
           ) : (
-            <form onSubmit={submitRegister} className="space-y-6">
+            <form onSubmit={submitRegister} className="space-y-5">
               <div>
-                <h2 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h2>
-                <p className="text-gray-600">Join thousands of users on PrimeHealth</p>
+                <h2 className="mb-1 font-serif text-3xl font-bold text-slate-900">Create account</h2>
               </div>
 
-              <Input
-                label="Full Name"
-                placeholder="Your full name"
-                value={registerForm.fullName}
-                onChange={(e) => setRegisterForm({ ...registerForm, fullName: e.target.value })}
-                error={errors.fullName}
-                required
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Full Name"
+                  placeholder="Your full name"
+                  value={registerForm.fullName}
+                  onChange={(e) => setRegisterForm({ ...registerForm, fullName: e.target.value })}
+                  error={errors.fullName}
+                  required
+                />
 
-              <Input
-                label="Email Address"
-                type="email"
-                placeholder="you@example.com"
-                value={registerForm.email}
-                onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
-                error={errors.email}
-                required
-              />
+                <Input
+                  label="Email Address"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                  error={errors.email}
+                  required
+                />
 
-              <Input
-                label="Password"
-                type="password"
-                placeholder="Create a strong password"
-                value={registerForm.password}
-                onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                error={errors.password}
-                required
-              />
+                <Input
+                  label="Password"
+                  type="password"
+                  placeholder="Create a strong password"
+                  value={registerForm.password}
+                  onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                  error={errors.password}
+                  required
+                />
 
-              <Input
-                label="Phone Number"
-                placeholder="+1 (555) 000-0000"
-                value={registerForm.phone}
-                onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
-              />
+                <Input
+                  label="Phone Number"
+                  placeholder="+1 (555) 000-0000"
+                  value={registerForm.phone}
+                  onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
+                />
 
-              <Select
-                label="I'm registering as"
-                options={[
-                  { value: 'patient', label: 'Patient' },
-                  { value: 'doctor', label: 'Doctor' }
-                ]}
-                value={registerForm.role}
-                onChange={(e) => setRegisterForm({ ...registerForm, role: e.target.value })}
-                error={errors.role}
-              />
+                <Select
+                  label="I'm registering as"
+                  options={[
+                    { value: 'patient', label: 'Patient' },
+                    { value: 'doctor', label: 'Doctor' }
+                  ]}
+                  value={registerForm.role}
+                  onChange={(e) => setRegisterForm({ ...registerForm, role: e.target.value })}
+                  error={errors.role}
+                />
+              </div>
 
               {registerForm.role === 'doctor' && (
                 <Input
@@ -329,10 +294,10 @@ export default function AuthPage({ mode = 'login', onAuth }) {
                 type="submit"
                 disabled={loading}
               >
-                {loading ? 'Creating account...' : 'Create Account'}
+                {loading ? 'Creating account...' : 'Create account'}
               </Button>
 
-              <p className="text-center text-gray-600 text-sm">
+              <p className="text-center text-sm text-slate-600">
                 Already have an account?{' '}
                 <Link to="/login" className="text-sea font-semibold hover:underline">
                   Sign in

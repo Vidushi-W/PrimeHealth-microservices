@@ -4,13 +4,16 @@ const parseInteger = (value, fallback) => {
 };
 
 module.exports = {
-    port: parseInteger(process.env.PORT, 5002),
+    /** Default 5006 avoids clashing with doctor-service (5002) in local dev */
+    port: parseInteger(process.env.PORT, 5006),
     mongoUri: process.env.MONGO_URI || '',
     jwtSecret: process.env.JWT_SECRET || '',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
     corsOrigin: process.env.CORS_ORIGIN || '*',
     videoProvider: (process.env.VIDEO_PROVIDER || 'jitsi').toLowerCase(),
     jitsiBaseUrl: process.env.JITSI_BASE_URL || 'https://meet.jit.si',
+    /** Minutes after scheduled end that join / video-token are still allowed */
+    joinGraceAfterEndMinutes: parseInteger(process.env.TELEMEDICINE_JOIN_GRACE_AFTER_END_MINUTES, 1440),
     twilio: {
         accountSid: process.env.TWILIO_ACCOUNT_SID || '',
         apiKey: process.env.TWILIO_API_KEY || '',

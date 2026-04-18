@@ -150,7 +150,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | `ADMIN_MONGO_URI` | Mongo URI for **admin-analytics-service** (`<mongo-uri>` for admin DB) |
 | `MONGO_URI_DOCTOR`, `MONGO_URI_PATIENT`, `MONGO_URI_APPOINTMENT`, `MONGO_URI_PAYMENT`, `MONGO_URI_PRESCRIPTION`, `TELEMEDICINE_MONGO_URI` | Per-service Mongo URIs (defaults work with single Docker Mongo host) |
 | `INTERNAL_SERVICE_TOKEN` | Shared secret for internal sync routes |
-| `PAYMENT_PROVIDER`, `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_USE_SANDBOX`, `PAYHERE_NOTIFY_URL`, `PAYHERE_FRONTEND_BASE_URL` | PayHere integration |
+| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `PAYHERE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm, no PayHere). Set `PAYMENT_PROVIDER=PAYHERE` and sandbox credentials when ready. Guide: [docs/PAYHERE_SANDBOX.md](docs/PAYHERE_SANDBOX.md). |
 | `CORS_ORIGIN` | Allowed browser origin(s) |
 
 **Frontend** (`Frontend_UI/.env.local` — optional, not committed):
@@ -163,6 +163,10 @@ VITE_PAYMENT_API_URL=http://localhost:<payment-service-port>
 VITE_PRESCRIPTION_API_URL=http://localhost:<prescription-service-port>
 VITE_TELEMEDICINE_API_URL=http://localhost:<telemedicine-service-port>
 VITE_ADMIN_API_URL=http://localhost:<admin-service-port>
+# Match the backend: SIMULATED (default) or PAYHERE
+# VITE_PAYMENT_PROVIDER=SIMULATED
+# Optional: PayHere opens in a new tab by default (`_blank`). Use `_self` for same-tab redirect.
+# VITE_PAYHERE_CHECKOUT_TARGET=_self
 ```
 
 Default ports used by the frontend code match the **full** Docker stack (see table below).

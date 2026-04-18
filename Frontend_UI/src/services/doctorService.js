@@ -46,11 +46,8 @@ export async function uploadDoctorProfilePicture(doctorId, file) {
   const formData = new FormData();
   formData.append('profilePicture', file);
 
-  const response = await api.post(`/api/doctors/${doctorId}/profile-picture`, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  });
+  // Let the browser/XHR set multipart boundary automatically.
+  const response = await api.post(`/api/doctors/${doctorId}/profile-picture`, formData);
 
   return response.data.data;
 }

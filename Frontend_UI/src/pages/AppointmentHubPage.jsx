@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   cancelAppointment,
@@ -11,8 +10,9 @@ import {
   fetchPaymentById,
   fetchPaymentByOrderId,
   fetchTelemedicineSessions,
-  initiatePayment,
-  submitHostedCheckout
+  getConfiguredPaymentProvider,
+  initiatePaymentFlow,
+  submitPayHereHostedCheckout
 } from '../services/platformApi';
 import { getMyAppointments as getPatientPortalAppointments } from '../services/patientApi';
 
@@ -183,67 +183,67 @@ function isMongoId(value) {
 const DEFAULT_PAYMENT_AMOUNT_LKR = 2500;
 
 export default function AppointmentHubPage({ auth }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState('');
   const [queueByAppointment, setQueueByAppointment] = useState({});
   const [telemedicineByAppointment, setTelemedicineByAppointment] = useState({});
-  const [viewFilter, setViewFilter] = useState('ALL');
+  const [viewFilter, setViewFilter] = useState('ACTIVE_PAID');
 
   const payAppointmentId = String(searchParams.get('payAppointmentId') || '').trim();
   const returnedOrderId = String(searchParams.get('order_id') || searchParams.get('orderId') || '').trim();
 
-  useEffect(() => {
-    let mounted = true;
+  const loadAppointments = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [centralList, portalResponse, sessions] = await Promise.all([
+        fetchPatientAppointments(auth),
+        getPatientPortalAppointments(auth.token).catch(() => ({ appointments: [] })),
+        fetchTelemedicineSessions(auth).catch(() => [])
+      ]);
 
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [centralList, portalResponse, sessions] = await Promise.all([
-          fetchPatientAppointments(auth),
-          getPatientPortalAppointments(auth.token).catch(() => ({ appointments: [] })),
-          fetchTelemedicineSessions(auth).catch(() => [])
-        ]);
-        if (!mounted) return;
+      const portalList = Array.isArray(portalResponse?.appointments)
+        ? portalResponse.appointments
+        : [];
 
-        const portalList = Array.isArray(portalResponse?.appointments)
-          ? portalResponse.appointments
-          : [];
+      setAppointments(mergeAppointments(centralList, portalList));
 
-        setAppointments(mergeAppointments(centralList, portalList));
-
-        const nextTelemedicineMap = {};
-        (Array.isArray(sessions) ? sessions : []).forEach((session) => {
-          const appointmentId = String(session.appointmentId || '').trim();
-          if (appointmentId) {
-            nextTelemedicineMap[appointmentId] = session;
-          }
-        });
-        setTelemedicineByAppointment(nextTelemedicineMap);
-      } catch (error) {
-        toast.error(error.message || 'Unable to load appointments');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
+      const nextTelemedicineMap = {};
+      (Array.isArray(sessions) ? sessions : []).forEach((session) => {
+        const appointmentId = String(session.appointmentId || '').trim();
+        if (appointmentId) {
+          nextTelemedicineMap[appointmentId] = session;
+        }
+      });
+      setTelemedicineByAppointment(nextTelemedicineMap);
+    } catch (error) {
+      toast.error(error.message || 'Unable to load appointments');
+    } finally {
+      setLoading(false);
+    }
   }, [auth]);
+
+  useEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
 
   const visibleAppointments = useMemo(
     () =>
       appointments
         .filter((item) => String(item.status || '').toUpperCase() !== 'CANCELLED')
         .filter((item) => {
+          const st = String(item.status || '').toUpperCase();
+          const ps = String(item.paymentStatus || '').toUpperCase();
+          const paid = ps === 'PAID' || st === 'CONFIRMED';
+
+          if (viewFilter === 'ACTIVE_PAID') {
+            return paid;
+          }
           if (viewFilter === 'ALL') return true;
           if (viewFilter === 'ONLINE') return String(item.mode || '').toLowerCase() === 'online';
-          if (viewFilter === 'PENDING_PAYMENT') return String(item.paymentStatus || '').toUpperCase() !== 'PAID';
-          return String(item.status || '').toUpperCase() === viewFilter;
+          if (viewFilter === 'PENDING_PAYMENT') return ps !== 'PAID' && st !== 'CONFIRMED';
+          return st === viewFilter;
         })
         .sort((left, right) => getCreatedTimestamp(right) - getCreatedTimestamp(left)),
     [appointments, viewFilter]
@@ -295,7 +295,17 @@ export default function AppointmentHubPage({ auth }) {
         );
 
         if (status === 'SUCCESS') {
-          toast.success('Payment completed successfully.');
+          await loadAppointments();
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete('order_id');
+              next.delete('orderId');
+              return next;
+            },
+            { replace: true }
+          );
+          toast.success('Payment confirmed. Your paid appointment appears under Active (paid).');
         }
       } catch (_error) {
         // Ignore callback lookup failures to avoid blocking appointment list rendering.
@@ -306,11 +316,16 @@ export default function AppointmentHubPage({ auth }) {
     return () => {
       mounted = false;
     };
-  }, [returnedOrderId, auth]);
+  }, [returnedOrderId, auth, loadAppointments, setSearchParams]);
 
   const upcomingCount = useMemo(
     () =>
-      visibleAppointments.filter((item) => ['PENDING', 'CONFIRMED'].includes(String(item.status || '').toUpperCase())).length,
+      visibleAppointments.filter((item) => {
+        const st = String(item.status || '').toUpperCase();
+        const ps = String(item.paymentStatus || '').toUpperCase();
+        const paid = ps === 'PAID' || st === 'CONFIRMED';
+        return paid && ['PENDING', 'CONFIRMED'].includes(st);
+      }).length,
     [visibleAppointments]
   );
 
@@ -387,12 +402,12 @@ export default function AppointmentHubPage({ auth }) {
         throw new Error('Unable to resolve appointment details for payment. Please re-open booking and try again.');
       }
 
-      const initiated = await initiatePayment(auth, {
+      const flow = await initiatePaymentFlow(auth, {
         appointmentId,
         patientId,
         doctorId,
         amount,
-        provider: 'PAYHERE',
+        provider: getConfiguredPaymentProvider(),
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -407,17 +422,14 @@ export default function AppointmentHubPage({ auth }) {
         cancelUrl: `${window.location.origin}/appointments`
       });
 
-      const orderId = initiated?.orderId;
-      if (!orderId) {
-        throw new Error('Payment order was not created');
-      }
-
-      if (initiated?.checkout?.gateway === 'PAYHERE') {
-        submitHostedCheckout(initiated.checkout);
+      if (flow.kind === 'payhere') {
+        submitPayHereHostedCheckout(flow.initiated.checkout);
+        toast.success('PayHere checkout opened separately. When you return to this page, your list will refresh after payment.');
         return;
       }
 
-      throw new Error('PayHere checkout payload was not returned. Please check sandbox configuration.');
+      await loadAppointments();
+      toast.success('Test payment completed. Your appointment is updated below.');
     } catch (error) {
       const serverMessage = error?.response?.data?.message || error?.response?.data?.error;
       toast.error(serverMessage || error.message || 'Unable to complete payment');
@@ -446,14 +458,14 @@ export default function AppointmentHubPage({ auth }) {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {['ALL', 'PENDING', 'CONFIRMED', 'COMPLETED', 'ONLINE', 'PENDING_PAYMENT'].map((filter) => (
+          {['ACTIVE_PAID', 'ALL', 'PENDING', 'CONFIRMED', 'COMPLETED', 'ONLINE', 'PENDING_PAYMENT'].map((filter) => (
             <button
               key={filter}
               type="button"
               onClick={() => setViewFilter(filter)}
               className={`rounded-full px-3 py-2 text-xs font-semibold ${viewFilter === filter ? 'bg-brand-500 text-white' : 'bg-brand-50 text-slate-700 hover:bg-brand-100'}`}
             >
-              {filter.replace('_', ' ')}
+              {filter === 'ACTIVE_PAID' ? 'Active (paid)' : filter.replace(/_/g, ' ')}
             </button>
           ))}
         </div>
@@ -484,10 +496,11 @@ export default function AppointmentHubPage({ auth }) {
               && !['CANCELLED'].includes(status);
             const joinWindow = getJoinWindowState(appointment);
             const joinAppointmentId = String(appointment.externalAppointmentId || appointmentId || '').trim();
+            const paymentReady = paymentStatus === 'PAID' || status === 'CONFIRMED';
             const canShowJoin = isMongoId(joinAppointmentId)
               && isOnline
-              && ['PENDING', 'CONFIRMED'].includes(status)
-              && joinWindow.canJoin;
+              && paymentReady
+              && ['PENDING', 'CONFIRMED'].includes(status);
             const paymentTargetId = appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id;
             const canInitiatePayment = isMongoId(paymentTargetId);
 

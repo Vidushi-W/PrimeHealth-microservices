@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import FindDoctorBookModal from '../components/FindDoctorBookModal';
 import { getDoctors } from '../services/doctorService';
+import { resolveCurrentDoctor } from '../utils/currentDoctor';
 
 const WEEKDAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -49,6 +51,7 @@ export default function DoctorListPage({ auth }) {
   const [query, setQuery] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [bookModalDoctor, setBookModalDoctor] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -77,6 +80,9 @@ export default function DoctorListPage({ auth }) {
     return [...new Set(doctors.map((doctor) => doctor.specialization).filter(Boolean))].sort();
   }, [doctors]);
 
+  const currentDoctor = useMemo(() => resolveCurrentDoctor(doctors).doctor, [doctors]);
+  const currentDoctorId = String(currentDoctor?._id || currentDoctor?.id || '');
+
   const filteredDoctors = useMemo(() => {
     return doctors.filter((doctor) => {
       const doctorText = `${doctor.name || ''} ${doctor.specialization || ''} ${doctor.hospitalOrClinic || ''}`.toLowerCase();
@@ -100,6 +106,14 @@ export default function DoctorListPage({ auth }) {
 
   return (
     <div className="space-y-6 animate-fade-up">
+      {isPatientView ? (
+        <FindDoctorBookModal
+          auth={auth}
+          doctor={bookModalDoctor}
+          open={Boolean(bookModalDoctor)}
+          onClose={() => setBookModalDoctor(null)}
+        />
+      ) : null}
       <section className="panel p-6">
         <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">
           {isPatientView ? 'Find a doctor' : 'Doctor directory'}
@@ -184,9 +198,19 @@ export default function DoctorListPage({ auth }) {
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Link className="button-secondary" to={`/doctors/${doctorId}`}>View profile</Link>
                   {isPatientView ? (
-                    <Link className="button-primary" to={`/patient/appointments/book?doctorId=${doctorId}`}>Book appointment</Link>
+                    <button
+                      type="button"
+                      className="button-primary"
+                      onClick={() => setBookModalDoctor(doctor)}
+                    >
+                      Book appointment
+                    </button>
                   ) : (
-                    <Link className="button-primary" to={`/doctors/${doctorId}`}>Manage availability</Link>
+                    String(doctorId) === currentDoctorId ? (
+                      <Link className="button-primary" to={`/doctors/${doctorId}`}>Manage availability</Link>
+                    ) : (
+                      <Link className="button-secondary" to={`/doctors/${doctorId}`}>View availability</Link>
+                    )
                   )}
                 </div>
               </article>

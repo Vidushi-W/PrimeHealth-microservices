@@ -124,12 +124,14 @@ services:
       - MONGO_URI=${MONGO_URI_PAYMENT:-mongodb://mongodb:27017/payment-db}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
-      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-PAYHERE}
+      # Local dev default: SIMULATED (no PayHere). Set PAYMENT_PROVIDER=PAYHERE when sandbox is configured.
+      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-SIMULATED}
+      - PAYMENT_SIMULATE_ALWAYS_SUCCESS=${PAYMENT_SIMULATE_ALWAYS_SUCCESS:-true}
       - PAYHERE_USE_SANDBOX=${PAYHERE_USE_SANDBOX:-true}
       - PAYHERE_MERCHANT_ID=${PAYHERE_MERCHANT_ID:-}
       - PAYHERE_MERCHANT_SECRET=${PAYHERE_MERCHANT_SECRET:-}
       - PAYHERE_NOTIFY_URL=${PAYHERE_NOTIFY_URL:-http://localhost:5004/api/payments/payhere/notify}
-      - PAYHERE_FRONTEND_BASE_URL=${PAYHERE_FRONTEND_BASE_URL:-http://localhost:3000}
+      - PAYHERE_FRONTEND_BASE_URL=${PAYHERE_FRONTEND_BASE_URL:-http://localhost:5173}
     depends_on:
       - mongodb
       - appointment-service
