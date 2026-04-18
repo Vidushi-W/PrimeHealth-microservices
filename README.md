@@ -426,16 +426,6 @@ Fine-grained contributions: see **Git history** and branches.
 
 ---
 
-## Future Enhancements
-
-- Hardened **API gateway** with central JWT validation, rate limits, and mTLS between services  
-- **Voice-to-prescription**, richer **live notes**, governed **clinical file share**  
-- **FHIR** interoperability, stronger audit trails  
-- **CI/CD**, contract tests, and automated security scanning  
-- Dedicated **notification** microservice with async bus (e.g. RabbitMQ / Kafka)
-
----
-
 ## Conclusion
 
 PrimeHealth demonstrates a **realistic microservices** design for smart healthcare: **React** on the client, **Node.js** services on the server, **MongoDB** for persistence, **Docker** for reproducible local deployment, optional **Kubernetes** for orchestration demos, and integrations (**PayHere**, **Jitsi**) suitable for academic evaluation. Use **`micro-services/docker/docker-compose.yml`** for the **fullest** local experience; use the **root** compose for a **lighter** appointment/payment path; use **manual** runs when debugging a single service.
