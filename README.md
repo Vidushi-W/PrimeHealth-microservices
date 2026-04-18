@@ -340,7 +340,7 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 ---
 
-## Deployment Steps for Submission
+## Deployment Steps
 
 1. **Clone the repository**
 
@@ -413,16 +413,6 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 | **W.D.S.G.S.Sasanka** | Appointment + payment module |
 
 Fine-grained contributions: see **Git history** and branches.
-
----
-
-## Notes / Troubleshooting
-
-- **Port 5001 clash:** Patient container listens on **5001** internally but is mapped to **5007** on the host in the full compose file; admin uses **5001** on the host. For manual runs, set **different `PORT`** values if both run on one machine.
-- **CORS:** Set `CORS_ORIGIN` to your exact frontend origin (e.g. `http://localhost:5173`).
-- **PayHere notify:** Must be reachable from the internet for real callbacks (use **ngrok** or deploy payment service).
-- **Jitsi / camera:** Browsers often require **HTTPS** or **localhost**; allow camera/mic permissions.
-- **Secrets leaked in Git:** Rotate **JWT_SECRET**, PayHere keys, and Atlas passwords immediately.
 
 ---
 
