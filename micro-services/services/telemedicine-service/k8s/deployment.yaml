@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemedicine-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemedicine-service
+  template:
+    metadata:
+      labels:
+        app: telemedicine-service
+    spec:
+      containers:
+        - name: telemedicine-service
+          image: primehealth/telemedicine-service:latest
+          ports:
+            - containerPort: 5002
+          env:
+            - name: PORT
+              value: "5002"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: telemedicine-secrets
+                  key: mongo-uri
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: telemedicine-secrets
+                  key: jwt-secret
+            - name: VIDEO_PROVIDER
+              value: "jitsi"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: telemedicine-secrets
+type: Opaque
+stringData:
+  mongo-uri: mongodb://mongodb:27017/primehealth_telemedicine
+  jwt-secret: replace-with-real-secret

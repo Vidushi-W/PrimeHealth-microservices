@@ -1,0 +1,116 @@
+{
+  "info": {
+    "_postman_id": "8b5a4a6a-2649-4e95-9f95-bf0d8f15d111",
+    "name": "PrimeHealth - Base Admin Microservice",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Centralized auth + admin management through admin-analytics-service."
+  },
+  "item": [
+    {
+      "name": "00. Health",
+      "item": [
+        { "name": "Root", "request": { "method": "GET", "url": "{{adminBaseUrl}}/" }, "response": [] },
+        { "name": "Health", "request": { "method": "GET", "url": "{{adminBaseUrl}}/health" }, "response": [] },
+        { "name": "Meta", "request": { "method": "GET", "url": "{{adminBaseUrl}}/api/admin/meta" }, "response": [] }
+      ]
+    },
+    {
+      "name": "01. Public Auth",
+      "item": [
+        {
+          "name": "Register Admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{newAdminEmail}}\",\n  \"password\": \"{{newAdminPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
+          },
+          "response": []
+        },
+        {
+          "name": "Register Doctor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"doctor\",\n  \"name\": \"{{doctorName}}\",\n  \"specialty\": \"{{doctorSpecialty}}\",\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
+          },
+          "response": []
+        },
+        {
+          "name": "Register Patient",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"patient\",\n  \"name\": \"{{patientName}}\",\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/register"
+          },
+          "response": []
+        },
+        {
+          "name": "Login Admin (Store Token)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const json = pm.response.json();", "pm.test('Status 200', function () { pm.response.to.have.status(200); });", "if (json && json.token) { pm.collectionVariables.set('adminToken', json.token); }"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
+          },
+          "response": []
+        },
+        {
+          "name": "Login Doctor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"doctor\",\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
+          },
+          "response": []
+        },
+        {
+          "name": "Login Patient",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"patient\",\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}" },
+            "url": "{{adminBaseUrl}}/api/auth/login"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02. Admin Protected",
+      "item": [
+        { "name": "Analytics Summary", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/analytics/summary" }, "response": [] },
+        { "name": "Analytics Appointments", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/analytics/appointments" }, "response": [] },
+        { "name": "Users", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/users?page=1&limit=20" }, "response": [] },
+        { "name": "Audit Logs", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/audit-logs?page=1&limit=20" }, "response": [] },
+        { "name": "Finance Transactions", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{adminBaseUrl}}/api/admin/finance/transactions" }, "response": [] }
+      ]
+    },
+    {
+      "name": "03. Error Checks",
+      "item": [
+        { "name": "Invalid Login", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"wrong-pass\"\n}" }, "url": "{{adminBaseUrl}}/api/auth/login" }, "response": [] },
+        { "name": "Protected Without Token", "request": { "method": "GET", "url": "{{adminBaseUrl}}/api/admin/analytics/summary" }, "response": [] }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "adminBaseUrl", "value": "http://localhost:5001" },
+    { "key": "adminEmail", "value": "<set-atlas-admin-email>" },
+    { "key": "adminPassword", "value": "<set-atlas-admin-password>" },
+    { "key": "newAdminEmail", "value": "<set-new-admin-email>" },
+    { "key": "newAdminPassword", "value": "<set-new-admin-password>" },
+    { "key": "doctorName", "value": "Dr. Auth User" },
+    { "key": "doctorSpecialty", "value": "General Medicine" },
+    { "key": "doctorEmail", "value": "doctor.auth@primehealth.local" },
+    { "key": "doctorPassword", "value": "Doctor@123" },
+    { "key": "patientName", "value": "Patient Auth" },
+    { "key": "patientEmail", "value": "patient.auth@primehealth.local" },
+    { "key": "patientPassword", "value": "Patient@123" },
+    { "key": "adminToken", "value": "" }
+  ]
+}
