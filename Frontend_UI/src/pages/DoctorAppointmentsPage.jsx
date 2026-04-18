@@ -82,12 +82,23 @@ function getJoinWindowState(appointment) {
   return { canJoin: true, label: 'Join available now' };
 }
 
+/** Aligns with appointment-service enums + legacy lowercase values from mirrors. */
+function normalizePaymentStatus(raw) {
+  return String(raw || '').trim().toUpperCase();
+}
+
+function isPaidOrConfirmedAppointment(item) {
+  const ps = normalizePaymentStatus(item.paymentStatus);
+  const st = String(item.status || '').toUpperCase();
+  return ps === 'PAID' || st === 'CONFIRMED';
+}
+
 const STATUS_FLOW = ['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'];
 const STATUS_FILTER_OPTIONS = ['ALL', 'PENDING', 'CONFIRMED', 'COMPLETED'];
 
 const PAYMENT_SCOPE_OPTIONS = [
-  { id: 'PAID', label: 'Paid (active)' },
   { id: 'NOT_PAID', label: 'Awaiting payment' },
+  { id: 'PAID', label: 'Paid (active)' },
   { id: 'ALL', label: 'All payments' },
 ];
 
@@ -95,7 +106,7 @@ export default function DoctorAppointmentsPage({ auth }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [paymentScope, setPaymentScope] = useState('PAID');
+  const [paymentScope, setPaymentScope] = useState('NOT_PAID');
   const [updatingId, setUpdatingId] = useState('');
   const [search, setSearch] = useState('');
 
@@ -110,9 +121,6 @@ export default function DoctorAppointmentsPage({ auth }) {
           page: 1,
           limit: 200,
         };
-        if (paymentScope === 'PAID') {
-          params.paymentStatus = 'PAID';
-        }
         const list = await fetchDoctorAppointments(auth, params);
         if (!mounted) return;
         setAppointments(Array.isArray(list) ? list : []);
@@ -128,7 +136,7 @@ export default function DoctorAppointmentsPage({ auth }) {
     return () => {
       mounted = false;
     };
-  }, [auth, statusFilter, paymentScope]);
+  }, [auth, statusFilter]);
 
   const filteredAppointments = useMemo(() => {
     let rows = appointments
@@ -136,11 +144,9 @@ export default function DoctorAppointmentsPage({ auth }) {
       .sort((left, right) => getCreatedTimestamp(right) - getCreatedTimestamp(left));
 
     if (paymentScope === 'NOT_PAID') {
-      rows = rows.filter((item) => {
-        const ps = String(item.paymentStatus || '').toUpperCase();
-        const st = String(item.status || '').toUpperCase();
-        return ps !== 'PAID' && st !== 'CONFIRMED';
-      });
+      rows = rows.filter((item) => !isPaidOrConfirmedAppointment(item));
+    } else if (paymentScope === 'PAID') {
+      rows = rows.filter((item) => isPaidOrConfirmedAppointment(item));
     }
 
     return rows;
@@ -244,8 +250,8 @@ export default function DoctorAppointmentsPage({ auth }) {
           const appointmentId = String(item._id || item.id);
           const currentStatus = String(item.status || 'PENDING').toUpperCase();
           const joinWindow = getJoinWindowState(item);
-          const paymentStatus = String(item.paymentStatus || '').toUpperCase();
-          const paymentReady = paymentStatus === 'PAID' || currentStatus === 'CONFIRMED';
+          const paymentStatus = normalizePaymentStatus(item.paymentStatus);
+          const paymentReady = isPaidOrConfirmedAppointment(item);
 
           return (
             <article key={appointmentId} className="panel p-5">

@@ -5,7 +5,9 @@ import AvailabilityForm from '../components/AvailabilityForm';
 import EmptyState from '../components/EmptyState';
 import LoadingState from '../components/LoadingState';
 import SlotCard from '../components/SlotCard';
+import StarRating, { StarRatingInput } from '../components/StarRating';
 import SummaryCard from '../components/SummaryCard';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 import {
   addAvailability,
   deleteAvailabilitySlot,
@@ -19,6 +21,15 @@ import {
 import { formatDateTime } from '../utils/formatters';
 import { getStoredAuth } from '../services/platformApi';
 import { getStoredDoctorIdentity } from '../utils/currentDoctor';
+
+function getDoctorImageSrc(doctor) {
+  const picture = doctor?.profilePicture || doctor?.profileImage || '';
+  if (!picture) return 'https://placehold.co/120x120?text=Dr';
+  if (picture.startsWith('http://') || picture.startsWith('https://')) return picture;
+  const base = API_BASE_DOCTOR.replace(/\/+$/, '');
+  const path = picture.startsWith('/') ? picture : `/${picture}`;
+  return `${base}${path}`;
+}
 
 function DoctorDetailsPage({ auth }) {
   const { doctorId } = useParams();
@@ -272,30 +283,53 @@ function DoctorDetailsPage({ auth }) {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="panel p-5">
+    <div className="space-y-4">
+      <section className="panel p-4">
         <div className="flex flex-col gap-3">
           <Link to="/" className="text-sm font-semibold text-brand-700 hover:text-brand-800">
             Back to doctor list
           </Link>
-          <h2 className="text-4xl font-semibold tracking-tight text-slate-900">{doctor.name}</h2>
-          <p className="text-sm text-slate-600">
+          <div className="flex items-start gap-3">
+            <img
+              src={getDoctorImageSrc(doctor)}
+              alt={`${doctor?.name || 'Doctor'} profile`}
+              className="h-16 w-16 shrink-0 rounded-2xl border border-brand-100 object-cover"
+            />
+            <div>
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">{doctor.name}</h2>
+          <p className="text-xs text-slate-600">
             {doctor.specialization} | {doctor.experience} years experience
           </p>
-          <p className="text-sm text-slate-500">{doctor.email}</p>
+          <p className="text-xs text-slate-500">{doctor.email}</p>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <span aria-hidden="true">⭐</span> Rating
+            </span>
+            <StarRating
+              value={doctor.ratingAverage}
+              size="sm"
+              showValue
+              reviewCount={doctor.ratingCount}
+            />
+          </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="grid gap-2.5 md:grid-cols-3">
+      <section className="grid gap-2 md:grid-cols-3">
         {[
-          ['Specialization', doctor.specialization],
-          ['Experience', `${doctor.experience} years`],
-          ['Availability Days', String(doctor.availability?.length || 0), 'Configured scheduling days']
-        ].map(([label, value, helper]) => (
-          <div key={label} className="panel p-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-600">{label}</p>
-            <p className="mt-1 text-2xl font-semibold leading-none text-slate-900">{value}</p>
-            {helper ? <p className="mt-1.5 text-[11px] text-slate-500">{helper}</p> : null}
+          ['🩺', 'Specialization', doctor.specialization],
+          ['⏱️', 'Experience', `${doctor.experience} years`],
+          ['📅', 'Availability Days', String(doctor.availability?.length || 0), 'Configured scheduling days']
+        ].map(([icon, label, value, helper]) => (
+          <div key={label} className="panel p-2">
+            <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-600">
+              <span aria-hidden="true">{icon}</span>
+              {label}
+            </p>
+            <p className="mt-1 text-xl font-semibold leading-none text-slate-900">{value}</p>
+            {helper ? <p className="mt-1 text-[10px] text-slate-500">{helper}</p> : null}
           </div>
         ))}
       </section>
@@ -308,12 +342,12 @@ function DoctorDetailsPage({ auth }) {
         </section>
       )}
 
-      <section className="space-y-5">
+      <section className="space-y-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">
-            Availability Overview
+          <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">
+            <span aria-hidden="true">🗂️</span> Availability Overview
           </p>
-          <h3 className="mt-2 text-2xl font-semibold text-slate-900">Daily schedules</h3>
+          <h3 className="mt-1 text-xl font-semibold text-slate-900">Daily schedules</h3>
         </div>
 
         {sortedAvailability.length === 0 ? (
@@ -322,13 +356,13 @@ function DoctorDetailsPage({ auth }) {
             description="Generate slots above to create the first scheduling window for this doctor."
           />
         ) : (
-          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="grid gap-4 xl:grid-cols-2">
             {sortedAvailability.map((availabilityItem) => (
-              <div key={availabilityItem.day} className="panel p-6">
+              <div key={availabilityItem.day} className="panel p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-xl font-semibold text-slate-900">{availabilityItem.day}</h4>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <h4 className="text-lg font-semibold text-slate-900">{availabilityItem.day}</h4>
+                    <p className="mt-1 text-xs text-slate-500">
                       Slot duration: {availabilityItem.slotDuration} minutes
                     </p>
                   </div>
@@ -337,7 +371,7 @@ function DoctorDetailsPage({ auth }) {
                   </span>
                 </div>
 
-                <div className="mt-5 grid gap-3">
+                <div className="mt-3 grid gap-2.5">
                   {availabilityItem.slots.map((slot) => {
                     const slotKey = `${availabilityItem.day}-${slot.start}-${slot.end}`;
                     return (
@@ -468,30 +502,31 @@ function DoctorDetailsPage({ auth }) {
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">Ratings and reviews</p>
             <h3 className="mt-2 text-2xl font-semibold text-slate-900">Patient feedback</h3>
           </div>
-          <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-            {Number(reviewSummary.averageRating || 0).toFixed(1)} / 5 ({reviewSummary.totalRatings || 0})
+          <span className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700">
+            <StarRating
+              value={reviewSummary.averageRating}
+              size="sm"
+              showValue
+              reviewCount={reviewSummary.totalRatings}
+            />
           </span>
         </div>
 
-        <form className="mt-5 grid gap-3 sm:grid-cols-[140px_1fr_auto]" onSubmit={handleReviewSubmit}>
-          <select
-            className="input"
-            value={reviewForm.rating}
-            onChange={(event) => setReviewForm((current) => ({ ...current, rating: event.target.value }))}
-          >
-            <option value="5">5 - Excellent</option>
-            <option value="4">4 - Good</option>
-            <option value="3">3 - Average</option>
-            <option value="2">2 - Poor</option>
-            <option value="1">1 - Bad</option>
-          </select>
+        <form className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end" onSubmit={handleReviewSubmit}>
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Your rating</span>
+            <StarRatingInput
+              value={Number(reviewForm.rating) || 5}
+              onChange={(rating) => setReviewForm((current) => ({ ...current, rating }))}
+            />
+          </div>
           <input
-            className="input"
+            className="input min-w-[12rem] flex-1 sm:min-w-[200px]"
             value={reviewForm.review}
             onChange={(event) => setReviewForm((current) => ({ ...current, review: event.target.value }))}
             placeholder="Write a review (optional)"
           />
-          <button className="button-primary" type="submit" disabled={submittingReview}>
+          <button className="button-primary shrink-0" type="submit" disabled={submittingReview}>
             {submittingReview ? 'Submitting...' : 'Submit review'}
           </button>
         </form>
@@ -501,7 +536,7 @@ function DoctorDetailsPage({ auth }) {
             <article key={item._id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900">{item.patientName || item.patientId}</p>
-                <p className="text-xs font-semibold text-brand-700">{item.rating}/5</p>
+                <StarRating value={item.rating} size="sm" />
               </div>
               <p className="mt-1 text-sm text-slate-600">{item.review || 'No comment provided.'}</p>
             </article>

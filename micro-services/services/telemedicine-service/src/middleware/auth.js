@@ -15,8 +15,10 @@ const getBearerToken = (headerValue) => {
 };
 
 const normalizeAuthUser = (payload) => {
-    const userId = String(payload.userId || payload.id || payload._id || '').trim();
-    const role = String(payload.role || '').toLowerCase().trim();
+    const userId = String(
+        payload.userId || payload.id || payload._id || payload.sub || payload.subject || ''
+    ).trim();
+    const role = String(payload.role || payload.roleType || '').toLowerCase().trim();
 
     return {
         userId,

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import EmptyState from '../components/EmptyState';
 import LoadingState from '../components/LoadingState';
+import StarRating from '../components/StarRating';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 import {
+  fetchDoctorReviews,
   getDoctorById,
   getDoctors,
   summarizeDoctorAppointments,
@@ -39,7 +42,7 @@ function getDoctorImageSrc(profilePicture) {
   if (!profilePicture) return 'https://placehold.co/120x120?text=Doctor';
   if (String(profilePicture).startsWith('http')) return profilePicture;
 
-  const base = (import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002').replace(/\/+$/, '');
+  const base = API_BASE_DOCTOR.replace(/\/+$/, '');
   const path = String(profilePicture).startsWith('/') ? profilePicture : `/${profilePicture}`;
   return `${base}${path}`;
 }
@@ -47,6 +50,7 @@ function getDoctorImageSrc(profilePicture) {
 function DoctorProfilePage({ auth }) {
   const [doctors, setDoctors] = useState([]);
   const [doctor, setDoctor] = useState(null);
+  const [reviewSummary, setReviewSummary] = useState({ averageRating: 0, totalRatings: 0, reviews: [] });
   const [identitySource, setIdentitySource] = useState('missing');
   const [formValues, setFormValues] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
@@ -59,12 +63,44 @@ function DoctorProfilePage({ auth }) {
       try {
         setLoading(true);
         const data = await getDoctors();
-        const resolved = resolveCurrentDoctor(data);
+        let resolved = resolveCurrentDoctor(data);
+
+        // Fallback: if local identity resolution fails, attempt direct lookup from auth user id(s).
+        if (!resolved.doctor) {
+          const candidateIds = [
+            auth?.user?.id,
+            auth?.user?._id,
+            auth?.user?.userId
+          ].filter(Boolean);
+
+          for (const candidate of candidateIds) {
+            // eslint-disable-next-line no-await-in-loop
+            const direct = await getDoctorById(candidate).catch(() => null);
+            if (direct) {
+              resolved = { doctor: direct, source: 'direct-id' };
+              break;
+            }
+          }
+        }
 
         setDoctors(data);
         setDoctor(resolved.doctor);
         setIdentitySource(resolved.source);
         setFormValues(toFormValues(resolved.doctor));
+
+        const resolvedId = resolved?.doctor?._id || resolved?.doctor?.id;
+        if (resolvedId) {
+          localStorage.setItem('primehealth:doctorId', String(resolvedId));
+          localStorage.setItem('primehealth:userId', String(resolvedId));
+          const reviews = await fetchDoctorReviews(resolvedId).catch(() => ({
+            averageRating: Number(resolved.doctor?.ratingAverage || 0),
+            totalRatings: Number(resolved.doctor?.ratingCount || 0),
+            reviews: []
+          }));
+          setReviewSummary(reviews);
+        } else {
+          setReviewSummary({ averageRating: 0, totalRatings: 0, reviews: [] });
+        }
       } catch (error) {
         toast.error(error.message || 'Failed to load doctor profile');
       } finally {
@@ -73,7 +109,7 @@ function DoctorProfilePage({ auth }) {
     };
 
     loadProfile();
-  }, []);
+  }, [auth?.user?.id, auth?.user?._id, auth?.user?.userId]);
 
   const appointmentSummary = useMemo(() => summarizeDoctorAppointments(doctor), [doctor]);
   const availabilityDays = doctor?.availability?.length || 0;
@@ -119,6 +155,10 @@ function DoctorProfilePage({ auth }) {
         current.map((item) => (String(item._id || item.id) === String(updatedDoctor._id || updatedDoctor.id) ? updatedDoctor : item))
       );
       setFormValues(toFormValues(updatedDoctor));
+      const reviews = await fetchDoctorReviews(updatedDoctor._id || updatedDoctor.id).catch(() => null);
+      if (reviews) {
+        setReviewSummary(reviews);
+      }
       setEditing(false);
       toast.success('Profile updated successfully');
     } catch (error) {
@@ -149,7 +189,13 @@ function DoctorProfilePage({ auth }) {
       setUploadingPhoto(true);
       const updated = await uploadDoctorProfilePicture(doctorIdentifier, file);
       const refreshed = await getDoctorById(doctorIdentifier).catch(() => null);
-      setDoctor(refreshed || updated);
+      const finalDoctor = refreshed || updated;
+      setDoctor(finalDoctor);
+      setDoctors((current) =>
+        current.map((item) =>
+          String(item._id || item.id) === String(finalDoctor?._id || finalDoctor?.id) ? finalDoctor : item
+        )
+      );
       toast.success('Profile picture updated');
     } catch (error) {
       toast.error(error.message || 'Failed to upload profile picture');
@@ -218,9 +264,19 @@ function DoctorProfilePage({ auth }) {
 
       <section className="panel p-4">
         <div className="grid gap-2 rounded-xl border border-brand-100 bg-brand-50/35 p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg bg-white/90 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overall Rating</p>
+            <div className="mt-1">
+              <StarRating
+                value={reviewSummary.averageRating}
+                size="sm"
+                showValue
+                reviewCount={reviewSummary.totalRatings}
+              />
+            </div>
+          </div>
           {[
-            ['Rating', `${Number(doctor.ratingAverage || 0).toFixed(1)} / 5`],
-            ['Total Reviews', `${doctor.ratingCount || 0} reviews`],
+            ['Total Reviews', `${reviewSummary.totalRatings || 0} reviews`],
             ['Available Days', `${availabilityDays}`],
             ['Appointments', `${appointmentSummary.total} weekly`]
           ].map(([label, value]) => (

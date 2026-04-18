@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import StarRating from './StarRating';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 import { createAppointment, getDoctorSlots } from '../services/patientApi';
 import { getConfiguredPaymentProvider, initiatePaymentFlow, submitPayHereHostedCheckout } from '../services/platformApi';
 
@@ -69,15 +71,9 @@ function getDoctorImageSrc(doctor) {
   const picture = doctor?.profilePicture || doctor?.profileImage || '';
   if (!picture) return '';
   if (picture.startsWith('http://') || picture.startsWith('https://')) return picture;
-  const base = (import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002').replace(/\/+$/, '');
+  const base = API_BASE_DOCTOR.replace(/\/+$/, '');
   const path = picture.startsWith('/') ? picture : `/${picture}`;
   return `${base}${path}`;
-}
-
-function formatRating(doctor) {
-  const average = Number(doctor?.ratingAverage || 0).toFixed(1);
-  const count = Number(doctor?.ratingCount || 0);
-  return `${average} / 5 (${count})`;
 }
 
 export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
@@ -257,7 +253,10 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-600">{doctor.specialization || 'Specialist'}</p>
               <h2 className="text-lg font-bold text-slate-900">{doctor.name || 'Doctor'}</h2>
               <p className="text-sm text-slate-600">{doctor.hospitalOrClinic || 'PrimeHealth'}</p>
-              <p className="mt-1 text-xs text-slate-500">Rating {formatRating(doctor)}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                <span className="font-medium text-slate-500">Rating</span>
+                <StarRating value={doctor.ratingAverage} size="sm" showValue reviewCount={doctor.ratingCount} />
+              </div>
             </div>
           </div>
           <button type="button" className="rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100" onClick={onClose}>

@@ -37,6 +37,55 @@ const loadSession = async (sessionId) => {
     return ConsultationSession.findById(sessionId);
 };
 
+/** Doctor or patient (admin treated as doctor for room presence). */
+const resolveConferenceRole = (user) => {
+    if (user.role === 'doctor' || user.role === 'admin') {
+        return 'doctor';
+    }
+
+    return 'patient';
+};
+
+/**
+ * Marks this user as joining the conference, opens the room when still scheduled,
+ * and records who first created the Jitsi room (Meet-style: either party can go first).
+ */
+const recordParticipantJoin = (session, user, via = 'join') => {
+    const joinedRole = resolveConferenceRole(user);
+    const now = new Date();
+    const prevParticipants = (session.metadata || {}).participants || {};
+    const metadata = {
+        ...(session.metadata || {}),
+        participants: {
+            ...prevParticipants,
+            [joinedRole]: {
+                ...(prevParticipants[joinedRole] || {}),
+                joinedAt: now.toISOString(),
+                userId: user.userId,
+                via
+            }
+        },
+        lastJoinedRole: joinedRole,
+        lastJoinedAt: now.toISOString()
+    };
+
+    if (session.status === 'scheduled') {
+        metadata.roomOpenedAt = metadata.roomOpenedAt || now.toISOString();
+        metadata.roomOpenedBy = metadata.roomOpenedBy || joinedRole;
+    }
+
+    if (joinedRole === 'doctor' && via === 'start') {
+        metadata.doctorHasStarted = true;
+    }
+
+    session.metadata = metadata;
+
+    if (session.status === 'scheduled') {
+        session.status = 'live';
+        session.startedAt = session.startedAt || now;
+    }
+};
+
 router.use(auth);
 
 /** Session creation: doctor, patient (self-only), or admin. */
@@ -200,7 +249,7 @@ router.get('/:sessionId', async (req, res) => {
     }
 });
 
-router.post('/:sessionId/start', requireRole('doctor', 'admin'), async (req, res) => {
+router.post('/:sessionId/start', requireRole('doctor', 'admin', 'patient'), async (req, res) => {
     try {
         const session = await loadSession(req.params.sessionId);
 
@@ -225,21 +274,16 @@ router.post('/:sessionId/start', requireRole('doctor', 'admin'), async (req, res
             });
         }
 
-        session.status = 'live';
-        session.startedAt = session.startedAt || new Date();
-        const nowIso = new Date().toISOString();
-        session.metadata = {
-            ...(session.metadata || {}),
-            doctorHasStarted: true,
-            participants: {
-                ...((session.metadata || {}).participants || {}),
-                doctor: (session.metadata || {}).participants?.doctor || {
-                    joinedAt: nowIso,
-                    userId: req.user.userId,
-                    via: 'start'
-                }
-            }
-        };
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
+        if (!joinAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
+                message: joinAccess.reason
+            });
+        }
+
+        recordParticipantJoin(session, req.user, 'start');
         await session.save();
 
         return res.json({
@@ -281,27 +325,7 @@ router.post('/:sessionId/join', async (req, res) => {
             });
         }
 
-        const joinedRole = req.user.role === 'doctor' ? 'doctor' : 'patient';
-        const now = new Date();
-        const metadata = {
-            ...(session.metadata || {}),
-            participants: {
-                ...((session.metadata || {}).participants || {}),
-                [joinedRole]: {
-                    joinedAt: now.toISOString(),
-                    userId: req.user.userId
-                }
-            },
-            lastJoinedRole: joinedRole,
-            lastJoinedAt: now.toISOString()
-        };
-
-        session.metadata = metadata;
-
-        if (session.status === 'scheduled') {
-            session.status = 'live';
-            session.startedAt = session.startedAt || now;
-        }
+        recordParticipantJoin(session, req.user, 'join');
 
         await session.save();
 

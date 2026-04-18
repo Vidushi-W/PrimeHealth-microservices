@@ -123,3 +123,6 @@ venv/
 # E2E / browser test output (if added later)
 playwright-report/
 test-results/
+
+# Repo-local generated files not needed in commits
+/.env.example

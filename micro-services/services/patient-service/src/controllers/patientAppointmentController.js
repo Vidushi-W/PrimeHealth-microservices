@@ -56,7 +56,7 @@ async function createAppointment(req, res) {
       req.user._id,
       req.body,
       req.headers["x-profile-id"],
-      req.user.externalRef || req.user.uniqueId || req.user._id
+      String(req.user._id)
     );
     return res.status(result.status).json(result.body);
   } catch (error) {

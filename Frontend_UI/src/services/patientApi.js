@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_PATIENT_API_URL || 'http://localhost:5007';
+import { API_BASE_PATIENT as API_BASE_URL } from '../config/apiBase';
 const ACTIVE_PROFILE_STORAGE_KEY = 'primeHealthActiveProfileId';
 
 export function getActiveProfileId() {
@@ -282,6 +282,21 @@ export async function updateMyProfile(token, payload) {
       ...buildAuthHeaders(token, false),
     },
     body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response);
+}
+
+export async function uploadPatientProfilePicture(token, file) {
+  const formData = new FormData();
+  formData.append('profilePicture', file);
+
+  const response = await fetch(`${API_BASE_URL}/api/patients/me/profile-picture`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
   });
 
   return parseResponse(response);

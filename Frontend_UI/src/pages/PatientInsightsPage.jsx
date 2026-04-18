@@ -336,6 +336,20 @@ function Dashboard({ auth, onProfileSync }) {
     return <div className="dashboard-state glass error">{error}</div>;
   }
 
+  const profile = homeData?.profile || {};
+  const profileName = profile.fullName || auth?.user?.fullName || auth?.user?.name || 'Patient';
+  const profileEmail = profile.email || auth?.user?.email || '';
+  const bloodGroup = profile.bloodGroup || profile.bloodType || 'Add to profile';
+  const emergencyContact = profile.emergencyContact || profile.emergencyPhone || 'Missing';
+  const actionRoutes = {
+    bookAppointment: '/patient/appointments/book',
+    profile: homeData?.quickActions?.profile?.route || '/profile',
+    riskScore: homeData?.quickActions?.riskScore?.route || '/risk-score',
+    reminders: homeData?.quickActions?.reminders?.route || '/reminders',
+    symptomChecker: homeData?.quickActions?.symptomChecker?.route || '/symptom-checker',
+    familyProfiles: '/family-profiles'
+  };
+
   return (
     <div className="dashboard-shell animate-fade-in">
       <div className="dashboard dashboard-patient">
@@ -348,27 +362,47 @@ function Dashboard({ auth, onProfileSync }) {
           </div>
 
           <div className="welcome-actions">
-            <Link className="btn btn-primary" to="/patient/appointments/book">
+            <Link className="btn btn-primary" to={actionRoutes.bookAppointment}>
               Book appointment
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.profile?.route || '/profile'}>
+            <Link className="btn btn-secondary" to={actionRoutes.profile}>
               {homeData?.quickActions?.profile?.ctaLabel || 'Open profile'}
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.riskScore?.route || '/risk-score'}>
+            <Link className="btn btn-secondary" to={actionRoutes.riskScore}>
               {homeData?.quickActions?.riskScore?.ctaLabel || 'Calculate risk score'}
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.reminders?.route || '/reminders'}>
+            <Link className="btn btn-secondary" to={actionRoutes.reminders}>
               {homeData?.quickActions?.reminders?.ctaLabel || 'Open reminders'}
             </Link>
-            <Link className="btn btn-secondary" to={homeData?.quickActions?.symptomChecker?.route || '/symptom-checker'}>
+            <Link className="btn btn-secondary" to={actionRoutes.symptomChecker}>
               {homeData?.quickActions?.symptomChecker?.ctaLabel || 'Start symptom check'}
             </Link>
-            <Link className="btn btn-secondary" to="/family-profiles">
+            <Link className="btn btn-secondary" to={actionRoutes.familyProfiles}>
               Family profiles
             </Link>
-            <Link className="btn btn-secondary" to="/risk-score">
+            <Link className="btn btn-secondary" to={actionRoutes.riskScore}>
               Health risk analyzer
             </Link>
+          </div>
+
+          <div className="profile-glance-row">
+            <article className="profile-glance-card">
+              <p className="profile-glance-label">Blood group</p>
+              <p className="profile-glance-value">{bloodGroup}</p>
+            </article>
+            <article className="profile-glance-card">
+              <p className="profile-glance-label">Emergency contact</p>
+              <p className="profile-glance-value">{emergencyContact}</p>
+            </article>
+            <article className="profile-identity-card">
+              <div>
+                <p className="profile-name">{profileName}</p>
+                <p className="profile-email">{profileEmail}</p>
+              </div>
+              <Link className="btn btn-secondary small" to={actionRoutes.profile}>
+                View profile
+              </Link>
+            </article>
           </div>
         </section>
 
@@ -387,27 +421,27 @@ function Dashboard({ auth, onProfileSync }) {
 
           <form className="profile-form" onSubmit={handleReportUpload}>
             <div className="booking-filter-grid">
-              <label className="form-field">
+              <label className="form-field field-file">
                 <span>File</span>
                 <input accept=".pdf,image/*" onChange={handleReportFileChange} type="file" />
               </label>
-              <label className="form-field">
+              <label className="form-field field-report-type">
                 <span>Report type</span>
                 <input name="reportType" onChange={handleReportFieldChange} placeholder="Blood test, CT scan, lipid panel" value={reportForm.reportType} />
               </label>
-              <label className="form-field">
+              <label className="form-field field-date">
                 <span>Date</span>
                 <input name="reportDate" onChange={handleReportFieldChange} type="date" value={reportForm.reportDate} />
               </label>
-              <label className="form-field">
+              <label className="form-field field-hospital">
                 <span>Hospital / lab name</span>
                 <input name="hospitalOrLabName" onChange={handleReportFieldChange} placeholder="Lanka Hospital Lab" value={reportForm.hospitalOrLabName} />
               </label>
-              <label className="form-field">
+              <label className="form-field field-doctor">
                 <span>Doctor name</span>
                 <input name="doctorName" onChange={handleReportFieldChange} placeholder="Optional" value={reportForm.doctorName} />
               </label>
-              <label className="form-field">
+              <label className="form-field field-notes">
                 <span>Notes</span>
                 <input name="notes" onChange={handleReportFieldChange} placeholder="Optional report notes" value={reportForm.notes} />
               </label>
@@ -427,14 +461,14 @@ function Dashboard({ auth, onProfileSync }) {
             <SectionHeader
               title="Upcoming appointments"
               description="Your next booked consultations and current visit details."
-              action={<Link className="btn btn-secondary small" to="/patient/appointments/book">Book appointment</Link>}
+              action={<Link className="btn btn-secondary small" to={actionRoutes.bookAppointment}>Book appointment</Link>}
               icon="🗓️"
             />
 
             <div className="list-stack">
               {homeData?.upcomingAppointments?.length ? homeData.upcomingAppointments.map((appointment) => (
                 <AppointmentCard appointment={appointment} key={appointment.id} />
-              )) : <EmptyState label="No upcoming appointments yet." ctaLabel="Book appointment" ctaTo="/patient/appointments/book" />}
+              )) : <EmptyState label="No upcoming appointments yet." ctaLabel="Book appointment" ctaTo={actionRoutes.bookAppointment} />}
             </div>
           </section>
 
@@ -534,21 +568,21 @@ function Dashboard({ auth, onProfileSync }) {
         </section>
 
         <div className="dashboard-grid dashboard-grid-tight">
-          <div className="dashboard-card">
+          <div className="dashboard-card dashboard-card-symptom-tone">
             <div>
               <h3>Health risk analyzer</h3>
               <p className="card-value">Track BMI and risk score trends</p>
               <p className="text-muted">Analyze your health factors and see risk changes on a timeline chart.</p>
-              <Link className="btn btn-secondary small" to="/risk-score">Open analyzer</Link>
+              <Link className="btn btn-secondary small" to={actionRoutes.riskScore}>Open analyzer</Link>
             </div>
           </div>
 
-          <div className="dashboard-card">
+          <div className="dashboard-card dashboard-card-symptom-tone">
             <div>
               <h3>Family profile management</h3>
               <p className="card-value">Manage multiple member profiles</p>
               <p className="text-muted">Add, edit, remove, and switch between dependent profiles under one account.</p>
-              <Link className="btn btn-secondary small" to="/family-profiles">Open family profiles</Link>
+              <Link className="btn btn-secondary small" to={actionRoutes.familyProfiles}>Open family profiles</Link>
             </div>
           </div>
 
@@ -557,7 +591,7 @@ function Dashboard({ auth, onProfileSync }) {
               <h3>Quick symptom checker</h3>
               <p className="card-value">AI-assisted symptom review</p>
               <p className="text-muted">Get preliminary guidance and suggested specialties before booking.</p>
-              <Link className="btn btn-secondary small" to="/symptom-checker">Start symptom check</Link>
+              <Link className="btn btn-secondary small" to={actionRoutes.symptomChecker}>Start symptom check</Link>
             </div>
           </div>
         </div>

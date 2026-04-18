@@ -6,6 +6,8 @@ const doctorSchema = new mongoose.Schema(
         uniqueId: { type: String, unique: true, sparse: true, trim: true },
         name: { type: String, required: true, trim: true },
         specialty: { type: String, default: '' },
+        experience: { type: Number, min: 0 },
+        phoneNumber: { type: String, trim: true, default: '' },
         status: { type: String, default: 'pending' },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true },
         passwordHash: { type: String, default: '' },

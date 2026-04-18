@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { API_BASE_TELEMEDICINE } from '../config/apiBase';
 import {
   cancelTelemedicineSession,
   createTelemedicineSession,
@@ -9,11 +10,10 @@ import {
   fetchAppointmentById,
   fetchTelemedicineSessionById,
   fetchTelemedicineSessions,
-  joinTelemedicineSession,
-  startTelemedicineSession
+  joinTelemedicineSession
 } from '../services/platformApi';
 
-const API_BASE_URL = import.meta.env.VITE_TELEMEDICINE_API_URL || 'http://localhost:5006';
+const API_BASE_URL = API_BASE_TELEMEDICINE;
 
 function authHeaders(authOrToken) {
   if (typeof authOrToken === 'string') {
@@ -59,6 +59,37 @@ function statusTone(status) {
     default:
       return 'bg-amber-100 text-amber-700';
   }
+}
+
+function participantPresence(metadata) {
+  const parts = metadata?.participants || {};
+  return {
+    doctorInRoom: Boolean(parts.doctor?.joinedAt),
+    patientInRoom: Boolean(parts.patient?.joinedAt),
+    roomOpenedBy: metadata?.roomOpenedBy || null
+  };
+}
+
+/** Short hint for Meet-style flow: either party opens the Jitsi room first; same `roomName` for both. */
+function conferenceStatusHint(session, viewerRole) {
+  const { doctorInRoom, patientInRoom } = participantPresence(session.metadata);
+  const st = String(session.status || '').toLowerCase();
+  const r = String(viewerRole || '').toLowerCase();
+
+  if (st === 'scheduled') {
+    return 'Either you or the other participant can tap Join conference first. That creates the live room; the other person then joins the same call.';
+  }
+  if (st === 'live') {
+    if (r === 'doctor') {
+      if (!patientInRoom) return 'Room is live. When your patient taps Join conference, they enter this same Jitsi room.';
+      return 'Both participants have checked in. Join anytime to enter or re-enter the call.';
+    }
+    if (r === 'patient') {
+      if (!doctorInRoom) return 'Room is live. You can enter now; your doctor will join the same room when they tap Join conference.';
+      return 'Your clinician is in the session. Tap Join conference to enter the same video room.';
+    }
+  }
+  return '';
 }
 
 export default function TelemedicinePage({ auth }) {
@@ -118,6 +149,20 @@ export default function TelemedicinePage({ auth }) {
   useEffect(() => {
     sessionCreateFailedForRef.current = '';
   }, [appointmentIdFromRoute]);
+
+  // Safety: never keep the deep-link hero in "preparing" forever.
+  useEffect(() => {
+    if (!deepLinkPreparing) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDeepLinkPreparing(false);
+      setError((prev) => prev || 'Session setup is taking longer than expected. You can join from the sessions list below.');
+    }, 15000);
+
+    return () => window.clearTimeout(timeout);
+  }, [deepLinkPreparing]);
 
   useEffect(() => {
     if (!appointmentIdFromRoute || loading) {
@@ -225,7 +270,7 @@ export default function TelemedicinePage({ auth }) {
     });
   }, [sessions, search]);
 
-  const selectSession = (session) => {
+  const selectSession = (session, initialTab = 'video') => {
     const loadDetails = async () => {
       try {
         const detailed = await fetchTelemedicineSessionById(auth, session.id);
@@ -233,23 +278,31 @@ export default function TelemedicinePage({ auth }) {
       } catch (_error) {
         setActiveSession(session);
       } finally {
-        setActiveTab('video');
+        setActiveTab(initialTab);
       }
     };
 
     loadDetails();
   };
 
-  const startSession = async (sessionId) => {
+  /** Registers with telemedicine-service (scheduled → live) and opens the Jitsi workspace — same pattern as Google Meet. */
+  const enterConference = async (session) => {
     try {
-      setLifecycleWorkingId(sessionId);
-      const updated = await startTelemedicineSession(auth, sessionId);
-      setSessions((current) => current.map((session) => (session.id === sessionId ? updated : session)));
+      setLifecycleWorkingId(session.id);
+      const updated = await joinTelemedicineSession(auth, session.id);
+      setSessions((current) =>
+        current.map((s) => (String(s.id) === String(updated.id) ? { ...s, ...updated } : s))
+      );
       setActiveSession(updated);
       setActiveTab('video');
-      toast.success('Consultation started');
+      toast.success(
+        String(session.status || '').toLowerCase() === 'scheduled'
+          ? 'Video room is open — connecting…'
+          : 'Joining video room…'
+      );
+      await refreshSessions();
     } catch (requestError) {
-      const message = requestError.response?.data?.message || requestError.message || 'Failed to start session';
+      const message = requestError.response?.data?.message || requestError.message || 'Could not join the conference';
       setError(message);
       toast.error(message);
     } finally {
@@ -340,9 +393,18 @@ export default function TelemedicinePage({ auth }) {
           {deepLinkPreparing || loading
             ? 'We are linking this appointment to a secure Jitsi room. Your camera and microphone will start here in a moment—same idea as Google Meet or Teams.'
             : role === 'patient' && isDeepLink
-              ? 'Your clinician opens the video room first. This page refreshes every few seconds—once the room is ready, the video will appear automatically.'
-              : 'Pick this appointment’s session from the list below (View session / Join now), or open the link again after the doctor has started the visit.'}
+              ? 'You or your doctor can open the call first. This page refreshes often—when the session appears, use Join conference to enter the same room.'
+              : 'Pick this appointment’s session below and tap Join conference. Either participant can go first; the other joins the same Jitsi room.'}
         </p>
+        {deepLinkPreparing ? (
+          <button
+            type="button"
+            className="button-secondary mt-4"
+            onClick={() => setDeepLinkPreparing(false)}
+          >
+            Continue to session list
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -446,11 +508,22 @@ export default function TelemedicinePage({ auth }) {
                     </div>
                   </div>
 
+                  <p className="mt-3 text-xs leading-relaxed text-slate-500">{conferenceStatusHint(session, role)}</p>
+
                   <div className="mt-4 flex flex-wrap gap-3">
-                    <button type="button" className="button-secondary" onClick={() => selectSession(session)}>View session</button>
-                    {session.status === 'live' ? (
-                      <button type="button" className="button-primary" onClick={() => selectSession(session)}>Join now</button>
+                    {session.status === 'scheduled' || session.status === 'live' ? (
+                      <button
+                        type="button"
+                        className="button-primary"
+                        disabled={lifecycleWorkingId === session.id}
+                        onClick={() => enterConference(session)}
+                      >
+                        Join conference
+                      </button>
                     ) : null}
+                    <button type="button" className="button-secondary" onClick={() => selectSession(session, 'details')}>
+                      Details &amp; chat
+                    </button>
                     {session.status === 'live' ? (
                       <button type="button" className="button-secondary" disabled={lifecycleWorkingId === session.id} onClick={() => handleEndSession(session.id)}>End session</button>
                     ) : null}
@@ -548,6 +621,36 @@ function Detail({ label, value }) {
   );
 }
 
+async function ensureJitsiExternalApi(domain) {
+  if (window.JitsiMeetExternalAPI) {
+    return;
+  }
+
+  const scriptSrc = `https://${domain}/external_api.js`;
+  const existing = document.querySelector(`script[src="${scriptSrc}"]`);
+
+  if (existing) {
+    await new Promise((resolve, reject) => {
+      if (window.JitsiMeetExternalAPI) {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Failed to load Jitsi API script.')), { once: true });
+    });
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = scriptSrc;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Jitsi API script.'));
+    document.head.appendChild(script);
+  });
+}
+
 function VideoConsultation({ sessionId, authContext, viewerRole = '', onSessionUpdate }) {
   const containerRef = useRef(null);
   const apiRef = useRef(null);
@@ -557,119 +660,118 @@ function VideoConsultation({ sessionId, authContext, viewerRole = '', onSessionU
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [waitingForPeer, setWaitingForPeer] = useState(true);
   const [participantCount, setParticipantCount] = useState(1);
-  const [waitHint, setWaitHint] = useState('');
 
   const isPatientViewer = String(viewerRole || '').toLowerCase() === 'patient';
 
   useEffect(() => {
     let cancelled = false;
 
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
+    /**
+     * Jitsi IFrame (External) API: same `roomName` + domain as Zoom/Google Meet “meeting id”.
+     * @see https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-iframe
+     */
     const mountJitsi = async () => {
       try {
         setError('');
-        setWaitHint('');
 
-        if (!window.JitsiMeetExternalAPI) {
-          throw new Error('Jitsi Meet is not loaded. Refresh the page and try again.');
-        }
+        setStatus('connecting');
 
-        while (!cancelled) {
-          try {
-            setStatus('connecting');
-            setWaitHint('');
+        const joined = await joinTelemedicineSession(authContext, sessionId);
+        if (cancelled) return;
+        onSessionUpdate?.(joined);
 
-            const joined = await joinTelemedicineSession(authContext, sessionId);
-            onSessionUpdate?.(joined);
+        const response = await axios.post(`${API_BASE_URL}/telemedicine/sessions/${sessionId}/video-token`, {}, {
+          headers: authHeaders(authContext)
+        });
 
-            const response = await axios.post(`${API_BASE_URL}/telemedicine/sessions/${sessionId}/video-token`, {}, {
-              headers: authHeaders(authContext)
-            });
+        if (cancelled) return;
 
-            if (cancelled) return;
-
-            const payload = response.data?.data || {};
-            const roomName = payload.roomName;
-            const token = payload.token || null;
-            let domain = 'meet.jit.si';
-            try {
-              if (payload.roomUrl) {
-                domain = new URL(payload.roomUrl).hostname;
-              }
-            } catch (_parseError) {
-              domain = 'meet.jit.si';
-            }
-
-            if (containerRef.current) {
-              containerRef.current.innerHTML = '';
-            }
-
-            const jitsiOptions = {
-              roomName,
-              width: '100%',
-              height: '100%',
-              parentNode: containerRef.current,
-              configOverwrite: {
-                startWithAudioMuted: false,
-                startWithVideoMuted: false,
-                disableDeepLinking: true,
-                prejoinPageEnabled: false
-              },
-              interfaceConfigOverwrite: {
-                SHOW_JITSI_WATERMARK: false,
-                SHOW_BRAND_WATERMARK: false,
-                VERTICAL_FILMSTRIP: false
-              }
-            };
-            if (token) {
-              jitsiOptions.jwt = token;
-            }
-
-            apiRef.current = new window.JitsiMeetExternalAPI(domain, jitsiOptions);
-
-            apiRef.current.addEventListener('videoConferenceJoined', () => {
-              setStatus('active');
-              setWaitingForPeer(true);
-              setParticipantCount(1);
-            });
-            apiRef.current.addEventListener('participantJoined', () => {
-              setParticipantCount((current) => {
-                const next = current + 1;
-                if (next >= 2) {
-                  setWaitingForPeer(false);
-                }
-                return next;
-              });
-            });
-            apiRef.current.addEventListener('participantLeft', () => {
-              setParticipantCount((current) => {
-                const next = Math.max(1, current - 1);
-                if (next < 2) {
-                  setWaitingForPeer(true);
-                }
-                return next;
-              });
-            });
-            apiRef.current.addEventListener('readyToClose', () => setStatus('ended'));
-            return;
-          } catch (requestError) {
-            const code = requestError.response?.data?.code;
-            const waiting = code === 'WAITING_FOR_DOCTOR';
-            if (isPatientViewer && waiting && !cancelled) {
-              setStatus('waiting_doctor');
-              setWaitHint(requestError.response?.data?.message || 'Waiting for your doctor to join…');
-              await sleep(4000);
-              continue;
-            }
-            const message = requestError.response?.data?.message || requestError.message || 'Failed to initialize video';
-            setError(message);
-            setStatus('error');
-            toast.error(message);
-            return;
+        const payload = response.data?.data || {};
+        const roomName = payload.roomName;
+        const token = payload.token || null;
+        let domain = 'meet.jit.si';
+        try {
+          if (payload.roomUrl) {
+            domain = new URL(payload.roomUrl).hostname;
           }
+        } catch (_parseError) {
+          domain = 'meet.jit.si';
         }
+
+        await ensureJitsiExternalApi(domain);
+        if (!window.JitsiMeetExternalAPI) {
+          throw new Error('Jitsi Meet API is unavailable for this domain.');
+        }
+
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '';
+        }
+
+        const u = authContext?.user || {};
+        const displayName = String(
+          u.fullName || u.name || u.email || (isPatientViewer ? 'Patient' : 'Clinician')
+        ).trim() || 'Guest';
+
+        const jitsiOptions = {
+          roomName,
+          width: '100%',
+          height: '100%',
+          parentNode: containerRef.current,
+          userInfo: {
+            displayName,
+            ...(u.email ? { email: String(u.email) } : {})
+          },
+          configOverwrite: {
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            disableDeepLinking: true,
+            prejoinPageEnabled: false,
+            enableNoisyMicDetection: true
+          },
+          interfaceConfigOverwrite: {
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_BRAND_WATERMARK: false,
+            VERTICAL_FILMSTRIP: true
+          }
+        };
+        if (token) {
+          jitsiOptions.jwt = token;
+        }
+
+        apiRef.current = new window.JitsiMeetExternalAPI(domain, jitsiOptions);
+
+        try {
+          apiRef.current.executeCommand?.('displayName', displayName);
+        } catch (_cmdErr) {
+          // displayName via userInfo is preferred; command is a fallback on some builds
+        }
+
+        apiRef.current.addEventListener('videoConferenceJoined', () => {
+          setStatus('active');
+          setWaitingForPeer(true);
+          setParticipantCount(1);
+        });
+        apiRef.current.addEventListener('participantJoined', () => {
+          setParticipantCount((current) => {
+            const next = current + 1;
+            if (next >= 2) {
+              setWaitingForPeer(false);
+            }
+            return next;
+          });
+        });
+        apiRef.current.addEventListener('participantLeft', () => {
+          setParticipantCount((current) => {
+            const next = Math.max(1, current - 1);
+            if (next < 2) {
+              setWaitingForPeer(true);
+            }
+            return next;
+          });
+        });
+        apiRef.current.addEventListener('readyToClose', () => setStatus('ended'));
       } catch (requestError) {
+        if (cancelled) return;
         const message = requestError.response?.data?.message || requestError.message || 'Failed to initialize video';
         setError(message);
         setStatus('error');
@@ -712,17 +814,11 @@ function VideoConsultation({ sessionId, authContext, viewerRole = '', onSessionU
           <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200">
             <span className="font-semibold">In-call video</span>
             <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-300">
-              {status === 'active' ? 'Connected' : status === 'waiting_doctor' ? 'Waiting for doctor' : status}
+              {status === 'active' ? 'In call' : status === 'connecting' ? 'Connecting…' : status}
             </span>
           </div>
           <div className="relative min-h-[min(85vh,52rem)] bg-slate-900">
             <div ref={containerRef} className="min-h-[min(85vh,52rem)] w-full" />
-            {status === 'waiting_doctor' ? (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-950/92 px-6 text-center text-white">
-                <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-200">Almost there</p>
-                <p className="max-w-md text-sm text-white/90">{waitHint || 'Your doctor will open the video room first. Retrying…'}</p>
-              </div>
-            ) : null}
             {waitingForPeer && status === 'active' ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-gradient-to-t from-black/80 to-transparent px-4 pb-4 pt-12 text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-200">Waiting for others</p>
@@ -745,7 +841,11 @@ function VideoConsultation({ sessionId, authContext, viewerRole = '', onSessionU
             </button>
           </div>
           <div className="mt-5 rounded-2xl bg-white p-4 text-sm text-slate-600 shadow-sm">
-            Jitsi credentials are requested from the telemedicine service, so the room remains tied to the session and user token.
+            Uses the{' '}
+            <a className="font-semibold text-brand-700 underline" href="https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-iframe" target="_blank" rel="noreferrer">
+              Jitsi IFrame API
+            </a>
+            . Doctor and patient share the same <code className="rounded bg-slate-100 px-1">roomName</code> from your appointment so both land in one meeting.
           </div>
         </div>
       </div>

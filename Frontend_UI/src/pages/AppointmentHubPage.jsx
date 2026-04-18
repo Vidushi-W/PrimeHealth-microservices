@@ -42,6 +42,35 @@ function normalizeMergedAppointment(item, source = 'central') {
   };
 }
 
+function paymentRank(value) {
+  const u = String(value || '').toUpperCase();
+  if (u === 'PAID') return 4;
+  if (u === 'PENDING') return 2;
+  if (u === 'UNPAID') return 1;
+  return 0;
+}
+
+function mergePaymentTiered(a, b) {
+  const A = String(a || '').toUpperCase() || 'UNPAID';
+  const B = String(b || '').toUpperCase() || 'UNPAID';
+  return paymentRank(A) >= paymentRank(B) ? A : B;
+}
+
+function statusRank(value) {
+  const u = String(value || '').toUpperCase();
+  if (u === 'COMPLETED') return 4;
+  if (u === 'CONFIRMED') return 3;
+  if (u === 'PENDING') return 2;
+  if (u === 'CANCELLED') return 0;
+  return 1;
+}
+
+function mergeStatusTiered(a, b) {
+  const A = normalizeStatus(a);
+  const B = normalizeStatus(b);
+  return statusRank(A) >= statusRank(B) ? A : B;
+}
+
 function mergeAppointments(centralAppointments, portalAppointments) {
   const map = new Map();
 
@@ -71,8 +100,8 @@ function mergeAppointments(centralAppointments, portalAppointments) {
       externalAppointmentId: existing.externalAppointmentId || normalized.externalAppointmentId,
       localAppointmentId: normalized.localAppointmentId || existing.localAppointmentId,
       source: existing.source || normalized.source,
-      status: normalizeStatus(existing.status || normalized.status),
-      paymentStatus: String(existing.paymentStatus || normalized.paymentStatus || 'UNPAID').toUpperCase()
+      status: mergeStatusTiered(existing.status, normalized.status),
+      paymentStatus: mergePaymentTiered(existing.paymentStatus, normalized.paymentStatus)
     });
   });
 

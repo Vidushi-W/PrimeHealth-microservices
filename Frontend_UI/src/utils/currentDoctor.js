@@ -29,8 +29,11 @@ export function getStoredDoctorIdentity() {
 
   return {
     id:
-      readStoredValue(['primehealth:doctorId', 'primehealthDoctorId', 'doctorId']) ||
       authUser.userId ||
+      authUser.id ||
+      authUser._id ||
+      authUser.doctorId ||
+      readStoredValue(['primehealth:doctorId', 'primehealthDoctorId', 'doctorId']) ||
       storedUser.doctorId ||
       storedUser.doctor?._id ||
       storedUser.doctor?.id ||
@@ -38,6 +41,7 @@ export function getStoredDoctorIdentity() {
       storedUser.id ||
       '',
     email:
+      authUser.email ||
       readStoredValue(['primehealth:email', 'primehealthDoctorEmail', 'doctorEmail', 'email']) ||
       storedUser.email ||
       storedUser.doctor?.email ||

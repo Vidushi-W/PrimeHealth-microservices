@@ -141,8 +141,7 @@ class PaymentService {
       throw new ApiError(409, 'Payment already confirmed.');
     }
 
-    // Simulate gateway — 90% success rate
-    const success = this._mockPaymentGateway(payment.method, payment.amount);
+    const success = this._mockPaymentGateway(payment.method, payment.amount, payment);
 
     if (success) {
       const transactionId = crypto.randomBytes(16).toString('hex');
@@ -364,13 +363,21 @@ class PaymentService {
   }
 
   // ─── Mock Gateway ────────────────────────────────────────
-  _mockPaymentGateway(method, amount) {
+  _mockPaymentGateway(method, amount, payment = null) {
     if (amount <= 0) return false;
     const force = String(process.env.PAYMENT_SIMULATE_ALWAYS_SUCCESS || '').toLowerCase();
     if (force === 'true' || force === '1') {
       return true;
     }
-    return Math.random() > 0.1; // 90% success when not forcing
+    const isSimulated = String(payment?.gatewayProvider || '').toUpperCase() === 'SIMULATED';
+    if (isSimulated) {
+      const randomFail = String(process.env.PAYMENT_SIMULATE_RANDOM_FAILURE || '').toLowerCase();
+      if (randomFail === 'true' || randomFail === '1') {
+        return Math.random() > 0.1;
+      }
+      return true;
+    }
+    return Math.random() > 0.1;
   }
 }
 

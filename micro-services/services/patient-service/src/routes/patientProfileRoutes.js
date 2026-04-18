@@ -9,7 +9,9 @@ const {
   getTimeline,
   uploadReport,
   updateProfile,
+  uploadProfilePicture,
 } = require("../controllers/patientProfileController");
+const { patientPhotoUpload } = require("../middleware/upload");
 const {
   createProfile,
   deleteProfile,
@@ -36,6 +38,15 @@ const { runSymptomCheck } = require("../controllers/symptomCheckerController");
 const { authorizeRoles, protect } = require("../middleware/auth");
 
 const router = express.Router();
+
+function runPatientPhotoUpload(req, res, next) {
+  patientPhotoUpload.single("profilePicture")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ message: err.message || "Invalid upload request" });
+    }
+    next();
+  });
+}
 
 router.use(protect);
 router.use(authorizeRoles("patient"));
@@ -66,5 +77,6 @@ router.get("/appointments", getAppointments);
 router.post("/appointments", createAppointment);
 router.get("/me", getProfile);
 router.put("/me", updateProfile);
+router.post("/me/profile-picture", runPatientPhotoUpload, uploadProfilePicture);
 
 module.exports = router;

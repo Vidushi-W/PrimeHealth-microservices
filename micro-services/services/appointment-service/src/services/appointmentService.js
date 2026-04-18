@@ -115,7 +115,10 @@ class AppointmentService {
     try {
       const doctor = await fetchDoctorById(canonicalDoctorId);
       resolvedDoctor = doctor;
-      canonicalDoctorId = String(doctor?.externalRef || doctor?.uniqueId || doctor?._id || canonicalDoctorId);
+      // Always persist the doctor-service primary key so queries match the logged-in doctor
+      // (x-user-id) and Atlas-backed doctor documents. Do not prefer externalRef/uniqueId here —
+      // that caused appointments to store an admin/sync id that did not match doctor list filters.
+      canonicalDoctorId = String(doctor?._id || canonicalDoctorId);
     } catch (_error) {
       // If lookup fails, continue with provided ID for backward compatibility.
     }
@@ -211,11 +214,21 @@ class AppointmentService {
   }
 
   // ─── Get My Appointments (Patient) ───────────────────────
-  async getMyAppointments(patientId, pagination = { page: 1, limit: 20 }) {
+  async getMyAppointmentsForPatientIds(patientIds, pagination = { page: 1, limit: 20 }) {
+    const unique = [...new Set((Array.isArray(patientIds) ? patientIds : [patientIds]).map(String).filter(Boolean))];
     const { page, limit } = pagination;
     const skip = (page - 1) * limit;
 
-    const filters = { patientId };
+    if (!unique.length) {
+      return {
+        appointments: [],
+        total: 0,
+        page,
+        totalPages: 0
+      };
+    }
+
+    const filters = unique.length === 1 ? { patientId: unique[0] } : { patientId: { $in: unique } };
     const [appointments, total] = await Promise.all([
       Appointment.find(filters).skip(skip).limit(limit).sort({ appointmentDate: -1 }),
       Appointment.countDocuments(filters)
