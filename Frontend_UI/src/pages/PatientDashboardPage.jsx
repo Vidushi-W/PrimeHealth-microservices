@@ -63,21 +63,32 @@ export default function PatientDashboardPage({ auth }) {
       .slice(0, 4);
   }, [doctors]);
 
+  const patientEmail = auth.user?.email || 'No email set';
+  const patientInitials = useMemo(() => {
+    const source = String(patientName || 'User').trim();
+    if (!source) return 'U';
+    return source
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || '')
+      .join('') || 'U';
+  }, [patientName]);
+
   return (
-    <div className="space-y-7 animate-fade-up">
-      <section className="overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/80 shadow-soft">
-        <div className="space-y-4 px-4 py-4 lg:px-5 lg:py-5">
+    <div className="space-y-5 animate-fade-up">
+      <section className="overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/90 shadow-soft">
+        <div className="space-y-3 px-4 py-4 lg:px-5 lg:py-5">
           <div>
             <p className="text-[0.65rem] font-bold uppercase tracking-[0.3em] text-brand-600">Patient workspace</p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-[2rem]">
+            <h1 className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:text-[2rem]">
               Welcome back, {patientName}
             </h1>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600 sm:text-sm">
+            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-600 sm:text-sm">
               Your care updates, prescriptions, and next actions are available in one place.
             </p>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Appointments" value={appointments.length} />
             <StatCard label="Doctors" value={doctors.length} />
             <StatCard label="Prescriptions" value={prescriptions.length} />
@@ -86,11 +97,11 @@ export default function PatientDashboardPage({ auth }) {
 
           <div className="rounded-2xl border border-brand-100 bg-white/70 p-2 sm:p-3">
             <p className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-brand-700">Quick actions</p>
-            <div className="mt-2 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+            <div className="mt-2 flex flex-wrap gap-2">
               {quickActions.map((action) => (
                 <Link
                   key={action.label}
-                  className={`${action.priority === 'primary' ? 'button-primary' : 'button-secondary'} shrink-0 whitespace-nowrap px-3 py-2 text-xs`}
+                  className={`${action.priority === 'primary' ? 'button-primary' : 'button-secondary'} shrink-0 whitespace-nowrap px-3 py-1.5 text-xs`}
                   to={action.to}
                 >
                   {action.label}
@@ -99,31 +110,58 @@ export default function PatientDashboardPage({ auth }) {
             </div>
           </div>
 
-          <p className="max-w-2xl text-[0.7rem] text-slate-500 sm:text-xs">
-            These quick actions cover appointment booking, profile management, reminders, family-member management, and AI-assisted symptom and risk workflows.
-          </p>
+          <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
+            <article className="rounded-2xl border border-brand-100 bg-brand-50/35 p-3">
+              <p className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-brand-700">Profile at-a-glance</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl bg-white px-3 py-2">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.15em] text-slate-500">Primary profile</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{patientName}</p>
+                </div>
+                <div className="rounded-xl bg-white px-3 py-2">
+                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.15em] text-slate-500">Latest status</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">Active</p>
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-brand-100 bg-white p-3">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-sm font-black text-brand-700">
+                  {patientInitials}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{patientName}</p>
+                  <p className="truncate text-xs text-slate-500">{patientEmail}</p>
+                </div>
+              </div>
+              <Link to="/profile" className="mt-3 inline-flex text-xs font-semibold text-brand-700 hover:text-brand-800">
+                View full profile
+              </Link>
+            </article>
+          </div>
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <div className="panel p-6">
+      <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+        <div className="panel p-4">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-2xl font-black tracking-tight text-slate-900">Upcoming appointments</h2>
-            <Link to="/appointments" className="text-sm font-semibold text-brand-700 hover:text-brand-800">Manage</Link>
+            <h2 className="text-xl font-black tracking-tight text-slate-900">Upcoming appointments</h2>
+            <Link to="/appointments" className="text-xs font-semibold text-brand-700 hover:text-brand-800">Manage</Link>
           </div>
 
           {loading ? <p className="mt-4 text-sm text-slate-500">Loading appointments...</p> : null}
           {error ? <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-3 space-y-2.5">
             {appointments.length === 0 ? (
               <EmptyCard text="No appointments yet. Start by booking with a specialist." />
             ) : (
               appointments.slice(0, 4).map((appointment, index) => (
-                <article key={appointment.id || appointment._id || index} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-4">
+                <article key={appointment.id || appointment._id || index} className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
                   <p className="text-sm font-semibold text-slate-800">{appointment.doctorName || appointment.specialty || 'Doctor consultation'}</p>
-                  <p className="mt-1 text-sm text-slate-500">{appointment.appointmentDate || appointment.date || 'Date pending'} · {appointment.startTime || appointment.time || 'TBD'}</p>
-                  <div className="mt-2 inline-flex rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                  <p className="mt-1 text-xs text-slate-500">{appointment.appointmentDate || appointment.date || 'Date pending'} · {appointment.startTime || appointment.time || 'TBD'}</p>
+                  <div className="mt-2 inline-flex rounded-full bg-white px-2.5 py-1 text-[0.68rem] font-semibold text-slate-600">
                     {appointment.status || 'scheduled'}
                   </div>
                 </article>
@@ -132,27 +170,27 @@ export default function PatientDashboardPage({ auth }) {
           </div>
         </div>
 
-        <div className="panel p-6">
-          <h2 className="text-2xl font-black tracking-tight text-slate-900">Top specialties</h2>
-          <p className="mt-2 text-sm text-slate-500">Suggested based on doctors currently available in PrimeHealth.</p>
+        <div className="panel p-4">
+          <h2 className="text-xl font-black tracking-tight text-slate-900">Top specialties</h2>
+          <p className="mt-1.5 text-xs text-slate-500">Suggested based on doctors currently available in PrimeHealth.</p>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             {topSpecialties.length === 0 ? (
               <EmptyCard text="No doctor data available right now." />
             ) : (
               topSpecialties.map(([specialty, count]) => (
-                <article key={specialty} className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm">
-                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-600">Specialty</p>
-                  <h3 className="mt-2 text-lg font-bold text-slate-900">{specialty}</h3>
-                  <p className="mt-1 text-sm text-slate-500">{count} doctors available</p>
+                <article key={specialty} className="rounded-xl border border-white/80 bg-white p-3 shadow-sm">
+                  <p className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-brand-600">Specialty</p>
+                  <h3 className="mt-1.5 text-base font-bold text-slate-900">{specialty}</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">{count} doctors available</p>
                 </article>
               ))
             )}
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link className="button-secondary" to="/doctors">Browse all doctors</Link>
-            <Link className="button-secondary" to="/telemedicine">Open telemedicine</Link>
+          <div className="mt-4 flex flex-wrap gap-2.5">
+            <Link className="button-secondary px-3 py-1.5 text-xs" to="/doctors">Browse all doctors</Link>
+            <Link className="button-secondary px-3 py-1.5 text-xs" to="/telemedicine">Open telemedicine</Link>
           </div>
         </div>
       </section>
@@ -162,9 +200,9 @@ export default function PatientDashboardPage({ auth }) {
 
 function StatCard({ label, value }) {
   return (
-    <div className="rounded-xl border border-brand-100 bg-white px-2 py-2 text-center shadow-sm">
+    <div className="rounded-xl border border-brand-100 bg-white px-2.5 py-2 text-center shadow-sm">
       <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-brand-700">{label}</p>
-      <p className="mt-0.5 text-lg font-black text-slate-900">{value}</p>
+      <p className="mt-0.5 text-base font-black text-slate-900 sm:text-lg">{value}</p>
     </div>
   );
 }

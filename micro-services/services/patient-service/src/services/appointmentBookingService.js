@@ -224,8 +224,9 @@ async function createAppointmentBooking(patientId, payload, profileId, centralPa
     sharedReports: buildSharedReportsSnapshot(patientProfile.uploadedReports || []),
   });
 
+  let centralDoctorId = "";
   try {
-    const centralDoctorId = await resolveCentralDoctorId(doctor);
+    centralDoctorId = await resolveCentralDoctorId(doctor);
     const canonicalPatientId = String(centralPatientId || patientId || "").trim();
 
     const centralAppointment = await createCentralAppointment({
@@ -250,7 +251,13 @@ async function createAppointmentBooking(patientId, payload, profileId, centralPa
       appointment.externalAppointmentId = String(centralAppointment._id);
       await appointment.save();
     }
-  } catch (_error) {
+  } catch (error) {
+    console.error("[patient-service] createCentralAppointment failed", {
+      message: error?.message,
+      response: error?.response?.data,
+      patientId: String(centralPatientId || patientId || ""),
+      doctorId: String(centralDoctorId || doctor?.id || ""),
+    });
     // Keep patient booking persisted even if central sync fails.
   }
 

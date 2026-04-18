@@ -1,3 +1,4 @@
+const axios = require('axios');
 const Doctor = require('../models/Doctor');
 const DoctorReview = require('../models/DoctorReview');
 const ApiError = require('../utils/ApiError');
@@ -235,7 +236,40 @@ async function registerDoctor(payload) {
   return doctor;
 }
 
+const directoryReconcileState = { lastAt: 0 };
+
+async function reconcileDoctorDirectoryFromAdmin(force = false) {
+  const base = (process.env.ADMIN_SERVICE_URL || '').trim().replace(/\/+$/, '');
+  const token = (process.env.INTERNAL_SERVICE_TOKEN || '').trim();
+  if (!base || !token) {
+    return;
+  }
+
+  const minMs = Number(process.env.ADMIN_DIRECTORY_RECONCILE_MS || 15000);
+  const now = Date.now();
+  if (!force && now - directoryReconcileState.lastAt < minMs) {
+    return;
+  }
+  directoryReconcileState.lastAt = now;
+
+  try {
+    const { data } = await axios.get(`${base}/api/internal/doctors/directory`, {
+      headers: { 'x-internal-service-token': token },
+      timeout: 25000
+    });
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    for (const row of rows) {
+      await upsertDoctorFromAdminPayload(row);
+    }
+  } catch (err) {
+    console.error('[doctor-service] Reconcile doctors from admin failed:', err.message);
+    directoryReconcileState.lastAt = 0;
+  }
+}
+
 async function listDoctors(filters = {}) {
+  await reconcileDoctorDirectoryFromAdmin(false);
+
   const query = {};
 
   if (filters.specialization) {
@@ -252,17 +286,37 @@ async function listDoctors(filters = {}) {
 }
 
 async function getDoctorById(id) {
-  const doctor = await Doctor.findById(id);
-  
-  if (!doctor) {
-    // Try email as fallback
-    const byEmail = await Doctor.findOne({ email: id });
-    if (!byEmail) throw new ApiError(404, `Doctor not found with ID/Email: ${id}`);
-
-    return byEmail;
+  const raw = String(id || '').trim();
+  if (!raw) {
+    throw new ApiError(404, 'Doctor id is required');
   }
 
-  return doctor;
+  let doctor = await Doctor.findById(raw);
+  if (doctor) {
+    return doctor;
+  }
+
+  doctor = await Doctor.findOne({
+    $or: [{ email: raw }, { externalRef: raw }, { uniqueId: raw }],
+  });
+  if (doctor) {
+    return doctor;
+  }
+
+  await reconcileDoctorDirectoryFromAdmin(true);
+
+  doctor = await Doctor.findById(raw);
+  if (doctor) {
+    return doctor;
+  }
+  doctor = await Doctor.findOne({
+    $or: [{ email: raw }, { externalRef: raw }, { uniqueId: raw }],
+  });
+  if (doctor) {
+    return doctor;
+  }
+
+  throw new ApiError(404, `Doctor not found with ID/Email: ${raw}`);
 }
 
 async function updateDoctorById(id, updates) {
@@ -566,9 +620,14 @@ async function getDoctorUpcomingAppointments(doctorId, limit = 10) {
   const now = Date.now();
   const upcoming = appointments
     .filter((item) => {
-      const appointmentDate = new Date(item?.appointmentDate || 0).getTime();
+      const datePart = String(item?.appointmentDate || '').slice(0, 10);
+      const timePart = String(item?.startTime || '00:00').slice(0, 5);
+      const combinedAt = new Date(`${datePart}T${timePart}:00`).getTime();
+      const appointmentDate = Number.isFinite(combinedAt) && combinedAt > 0
+        ? combinedAt
+        : new Date(item?.appointmentDate || 0).getTime();
       const status = String(item?.status || '').toUpperCase();
-      return appointmentDate >= now && status !== 'CANCELLED';
+      return appointmentDate >= now && !['CANCELLED', 'COMPLETED'].includes(status);
     })
     .slice(0, Number(limit) || 10)
     .map((item) => ({
@@ -682,9 +741,7 @@ async function getDoctorEarnings(doctorId) {
   return paymentSummary;
 }
 
-async function syncDoctorFromAdmin(payload, headers = {}) {
-  assertInternalSyncAuthorized(headers);
-
+async function upsertDoctorFromAdminPayload(payload) {
   const email = String(payload?.email || '').trim().toLowerCase();
   if (!email) {
     throw new ApiError(400, 'email is required for doctor sync');
@@ -706,8 +763,8 @@ async function syncDoctorFromAdmin(payload, headers = {}) {
 
   const stableId =
     existingDoctor?._id ||
-    uniqueId ||
     externalRef ||
+    uniqueId ||
     email;
 
   const computedIsActive =
@@ -741,6 +798,11 @@ async function syncDoctorFromAdmin(payload, headers = {}) {
   });
 
   return syncedDoctor;
+}
+
+async function syncDoctorFromAdmin(payload, headers = {}) {
+  assertInternalSyncAuthorized(headers);
+  return upsertDoctorFromAdminPayload(payload);
 }
 
 module.exports = {

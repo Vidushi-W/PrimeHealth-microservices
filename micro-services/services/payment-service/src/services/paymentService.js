@@ -2,17 +2,21 @@ const Payment = require('../models/Payment');
 const ApiError = require('../utils/ApiError');
 const appointmentClient = require('./appointmentClient');
 const { generateOrderId } = require('../utils/generateOrderId');
+const {
+  getPayHereCheckoutUrl,
+  resolveFrontendBase,
+  normalizeMerchantSecretForHash,
+  isPayHereSandbox
+} = require('../config/payhere');
+const logger = require('../config/logger');
 const crypto = require('crypto');
-
-const PAYHERE_SANDBOX_CHECKOUT_URL = 'https://sandbox.payhere.lk/pay/checkout';
-const PAYHERE_LIVE_CHECKOUT_URL = 'https://www.payhere.lk/pay/checkout';
 
 function normalizedAmount(value) {
   return Number(value || 0).toFixed(2);
 }
 
 function md5(value) {
-  return crypto.createHash('md5').update(String(value)).digest('hex');
+  return crypto.createHash('md5').update(String(value), 'utf8').digest('hex');
 }
 
 function getPayHereSecretHash(secret) {
@@ -25,9 +29,12 @@ class PaymentService {
     const { appointmentId, patientId, doctorId, amount, method, customer = {}, returnUrl, cancelUrl, provider } = data;
     const requestedProvider = String(provider || process.env.PAYMENT_PROVIDER || 'SIMULATED').toUpperCase();
     const merchantId = String(process.env.PAYHERE_MERCHANT_ID || '').trim();
-    const merchantSecret = String(process.env.PAYHERE_MERCHANT_SECRET || '').trim();
+    const merchantSecret = normalizeMerchantSecretForHash(process.env.PAYHERE_MERCHANT_SECRET || '');
     if (requestedProvider === 'PAYHERE' && (!merchantId || !merchantSecret)) {
-      throw new ApiError(503, 'PayHere sandbox is not configured. Set PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET.');
+      throw new ApiError(
+        503,
+        'PayHere is not configured. Set PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET from your PayHere Sandbox account (https://sandbox.payhere.lk/).'
+      );
     }
     const canUsePayHere = requestedProvider === 'PAYHERE';
 
@@ -60,11 +67,26 @@ class PaymentService {
     const secretHash = getPayHereSecretHash(merchantSecret);
     const hash = md5(`${merchantId}${orderId}${amountString}${currency}${secretHash}`).toUpperCase();
 
-    const frontendBase = String(process.env.PAYHERE_FRONTEND_BASE_URL || '').trim();
+    const appBase = resolveFrontendBase();
     const notifyUrl = String(process.env.PAYHERE_NOTIFY_URL || '').trim();
-    const effectiveReturnUrl = returnUrl || (frontendBase ? `${frontendBase}/appointments` : 'http://localhost:3000/appointments');
+    const effectiveReturnUrl = returnUrl || `${appBase}/appointments`;
     const effectiveCancelUrl = cancelUrl || effectiveReturnUrl;
     const effectiveNotifyUrl = notifyUrl || 'http://localhost:5004/api/payments/payhere/notify';
+
+    const urlsForLocalCheck = `${effectiveReturnUrl}${effectiveCancelUrl}${effectiveNotifyUrl}`;
+    const looksLikeLocal = /localhost|127\.0\.0\.1/i.test(urlsForLocalCheck);
+    if (!isPayHereSandbox() && looksLikeLocal) {
+      throw new ApiError(
+        400,
+        'PayHere live mode cannot be used with localhost/127.0.0.1 URLs. For local development set PAYHERE_USE_SANDBOX=true and use Merchant ID + Secret from https://sandbox.payhere.lk/ (not www.payhere.lk).'
+      );
+    }
+
+    const checkoutUrl = getPayHereCheckoutUrl();
+    logger.info('PayHere checkout', {
+      environment: isPayHereSandbox() ? 'sandbox' : 'live',
+      checkoutHost: checkoutUrl.replace(/^https?:\/\//i, '').split('/')[0]
+    });
 
     const payload = {
       merchant_id: merchantId,
@@ -84,15 +106,18 @@ class PaymentService {
       country: String(customer.country || 'Sri Lanka').trim() || 'Sri Lanka',
       hash,
       custom_1: String(appointmentId),
-      custom_2: String(patientId)
+      custom_2: String(patientId),
+      platform: 'PrimeHealth-Web'
     };
+
+    if (isPayHereSandbox()) {
+      payload.testMode = 'on';
+    }
 
     payment.checkoutData = payload;
     await payment.save();
 
-    const gatewayUrl = process.env.PAYHERE_USE_SANDBOX === 'false'
-      ? PAYHERE_LIVE_CHECKOUT_URL
-      : PAYHERE_SANDBOX_CHECKOUT_URL;
+    const gatewayUrl = checkoutUrl;
 
     return {
       ...payment.toObject(),
@@ -116,8 +141,7 @@ class PaymentService {
       throw new ApiError(409, 'Payment already confirmed.');
     }
 
-    // Simulate gateway — 90% success rate
-    const success = this._mockPaymentGateway(payment.method, payment.amount);
+    const success = this._mockPaymentGateway(payment.method, payment.amount, payment);
 
     if (success) {
       const transactionId = crypto.randomBytes(16).toString('hex');
@@ -171,7 +195,7 @@ class PaymentService {
 
   async handlePayHereNotification(payload) {
     const merchantId = String(process.env.PAYHERE_MERCHANT_ID || '').trim();
-    const merchantSecret = String(process.env.PAYHERE_MERCHANT_SECRET || '').trim();
+    const merchantSecret = normalizeMerchantSecretForHash(process.env.PAYHERE_MERCHANT_SECRET || '');
     if (!merchantId || !merchantSecret) {
       throw new ApiError(503, 'PayHere configuration missing.');
     }
@@ -339,9 +363,21 @@ class PaymentService {
   }
 
   // ─── Mock Gateway ────────────────────────────────────────
-  _mockPaymentGateway(method, amount) {
+  _mockPaymentGateway(method, amount, payment = null) {
     if (amount <= 0) return false;
-    return Math.random() > 0.1; // 90% success
+    const force = String(process.env.PAYMENT_SIMULATE_ALWAYS_SUCCESS || '').toLowerCase();
+    if (force === 'true' || force === '1') {
+      return true;
+    }
+    const isSimulated = String(payment?.gatewayProvider || '').toUpperCase() === 'SIMULATED';
+    if (isSimulated) {
+      const randomFail = String(process.env.PAYMENT_SIMULATE_RANDOM_FAILURE || '').toLowerCase();
+      if (randomFail === 'true' || randomFail === '1') {
+        return Math.random() > 0.1;
+      }
+      return true;
+    }
+    return Math.random() > 0.1;
   }
 }
 

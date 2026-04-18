@@ -5,9 +5,11 @@ import {
   downloadPaymentInvoice,
   fetchPaymentById,
   fetchPaymentByOrderId,
-  initiatePayment,
-  submitHostedCheckout
+  getConfiguredPaymentProvider,
+  initiatePaymentFlow,
+  submitPayHereHostedCheckout
 } from '../services/platformApi';
+import toast from 'react-hot-toast';
 import './Dashboard.css';
 
 const initialFilters = {
@@ -514,12 +516,12 @@ function BookAppointmentPage({ auth }) {
       const doctorId = selectedDoctor?.id || targetAppointment.doctorId;
       const amount = Number(targetAppointment.fee || selectedDoctor?.consultationFee || 0);
 
-      const initiated = await initiatePayment(auth, {
+      const flow = await initiatePaymentFlow(auth, {
         appointmentId,
         patientId,
         doctorId,
         amount,
-        provider: 'PAYHERE',
+        provider: getConfiguredPaymentProvider(),
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -530,24 +532,25 @@ function BookAppointmentPage({ auth }) {
           city: 'Colombo',
           country: 'Sri Lanka'
         },
-        returnUrl: `${window.location.origin}/patient/appointments/book`,
-        cancelUrl: `${window.location.origin}/patient/appointments/book`
+        returnUrl: `${window.location.origin}/appointments`,
+        cancelUrl: `${window.location.origin}/appointments`
       });
 
-      const orderId = initiated?.orderId;
-      if (!orderId) {
-        throw new Error('Payment order was not created');
-      }
-
-      setPaymentOrderId(orderId);
-
-      if (initiated?.checkout?.gateway === 'PAYHERE') {
+      if (flow.kind === 'payhere') {
+        setPaymentOrderId(flow.initiated.orderId);
         setPaymentState('pending');
-        submitHostedCheckout(initiated.checkout);
+        submitPayHereHostedCheckout(flow.initiated.checkout);
+        toast.success(
+          'PayHere checkout opened in a separate tab (sandbox). After paying you will land on Appointments with your booking updated.',
+        );
         return;
       }
 
-      throw new Error('PayHere checkout payload was not returned. Please check sandbox configuration.');
+      setPaymentOrderId(flow.initiated.orderId);
+      setPaymentRecord(flow.confirmed || null);
+      setPaymentState('paid');
+      setSuccess('Test payment completed (local simulated gateway). Your appointment is confirmed.');
+      toast.success('Local test payment succeeded.');
     } catch (requestError) {
       setPaymentState('failed');
       const serverMessage = requestError?.response?.data?.message || requestError?.response?.data?.error;

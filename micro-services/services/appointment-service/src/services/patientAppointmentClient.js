@@ -24,7 +24,13 @@ async function syncPatientAppointmentStatus(externalAppointmentId, payload) {
       timeout: 5000
     });
     return data?.data || null;
-  } catch (_error) {
+  } catch (error) {
+    console.error('[appointment-service] syncPatientAppointmentStatus failed', {
+      url,
+      message: error?.message,
+      status: error?.response?.status,
+      data: error?.response?.data,
+    });
     return null;
   }
 }

@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { auth, requireRole } = require('../middleware/auth');
 const ConsultationSession = require('../models/ConsultationSession');
-const { canAccessSession, canJoinSessionNow } = require('../services/sessionAccess');
+const { canAccessSession, assertTelemedicineVideoAccess } = require('../services/sessionAccess');
 const { getRoomName, generateVideoSessionPayload } = require('../services/videoProviders');
 
 const router = express.Router();
@@ -37,9 +37,59 @@ const loadSession = async (sessionId) => {
     return ConsultationSession.findById(sessionId);
 };
 
+/** Doctor or patient (admin treated as doctor for room presence). */
+const resolveConferenceRole = (user) => {
+    if (user.role === 'doctor' || user.role === 'admin') {
+        return 'doctor';
+    }
+
+    return 'patient';
+};
+
+/**
+ * Marks this user as joining the conference, opens the room when still scheduled,
+ * and records who first created the Jitsi room (Meet-style: either party can go first).
+ */
+const recordParticipantJoin = (session, user, via = 'join') => {
+    const joinedRole = resolveConferenceRole(user);
+    const now = new Date();
+    const prevParticipants = (session.metadata || {}).participants || {};
+    const metadata = {
+        ...(session.metadata || {}),
+        participants: {
+            ...prevParticipants,
+            [joinedRole]: {
+                ...(prevParticipants[joinedRole] || {}),
+                joinedAt: now.toISOString(),
+                userId: user.userId,
+                via
+            }
+        },
+        lastJoinedRole: joinedRole,
+        lastJoinedAt: now.toISOString()
+    };
+
+    if (session.status === 'scheduled') {
+        metadata.roomOpenedAt = metadata.roomOpenedAt || now.toISOString();
+        metadata.roomOpenedBy = metadata.roomOpenedBy || joinedRole;
+    }
+
+    if (joinedRole === 'doctor' && via === 'start') {
+        metadata.doctorHasStarted = true;
+    }
+
+    session.metadata = metadata;
+
+    if (session.status === 'scheduled') {
+        session.status = 'live';
+        session.startedAt = session.startedAt || now;
+    }
+};
+
 router.use(auth);
 
-router.post('/', requireRole('doctor', 'patient', 'admin'), async (req, res) => {
+/** Session creation: doctor, patient (self-only), or admin. */
+router.post('/', requireRole('doctor', 'admin', 'patient'), async (req, res) => {
     try {
         const {
             appointmentId = '',
@@ -97,10 +147,21 @@ router.post('/', requireRole('doctor', 'patient', 'admin'), async (req, res) => 
             });
         }
 
-        const roomName = getRoomName(String(appointmentId || '').trim());
+        const trimmedAppointmentId = String(appointmentId || '').trim();
+        if (trimmedAppointmentId) {
+            const existingForAppointment = await ConsultationSession.findOne({ appointmentId: trimmedAppointmentId });
+            if (existingForAppointment) {
+                return res.status(200).json({
+                    success: true,
+                    data: parseSessionDocument(existingForAppointment)
+                });
+            }
+        }
+
+        const roomName = getRoomName(trimmedAppointmentId);
 
         const session = await ConsultationSession.create({
-            appointmentId: String(appointmentId || '').trim(),
+            appointmentId: trimmedAppointmentId,
             doctorId: String(doctorId).trim(),
             patientId: String(patientId).trim(),
             scheduledStartAt: startDate,
@@ -188,7 +249,7 @@ router.get('/:sessionId', async (req, res) => {
     }
 });
 
-router.post('/:sessionId/start', async (req, res) => {
+router.post('/:sessionId/start', requireRole('doctor', 'admin', 'patient'), async (req, res) => {
     try {
         const session = await loadSession(req.params.sessionId);
 
@@ -213,8 +274,16 @@ router.post('/:sessionId/start', async (req, res) => {
             });
         }
 
-        session.status = 'live';
-        session.startedAt = session.startedAt || new Date();
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
+        if (!joinAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
+                message: joinAccess.reason
+            });
+        }
+
+        recordParticipantJoin(session, req.user, 'start');
         await session.save();
 
         return res.json({
@@ -247,35 +316,16 @@ router.post('/:sessionId/join', async (req, res) => {
             });
         }
 
-        const joinAccess = canJoinSessionNow(session);
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
                 message: joinAccess.reason
             });
         }
 
-        const joinedRole = req.user.role === 'doctor' ? 'doctor' : 'patient';
-        const now = new Date();
-        const metadata = {
-            ...(session.metadata || {}),
-            participants: {
-                ...((session.metadata || {}).participants || {}),
-                [joinedRole]: {
-                    joinedAt: now.toISOString(),
-                    userId: req.user.userId
-                }
-            },
-            lastJoinedRole: joinedRole,
-            lastJoinedAt: now.toISOString()
-        };
-
-        session.metadata = metadata;
-
-        if (session.status === 'scheduled') {
-            session.status = 'live';
-            session.startedAt = session.startedAt || now;
-        }
+        recordParticipantJoin(session, req.user, 'join');
 
         await session.save();
 
@@ -384,10 +434,11 @@ router.post('/:sessionId/video-token', async (req, res) => {
             });
         }
 
-        const joinAccess = canJoinSessionNow(session);
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
+                code: joinAccess.code || 'JOIN_NOT_ALLOWED',
                 message: joinAccess.reason
             });
         }

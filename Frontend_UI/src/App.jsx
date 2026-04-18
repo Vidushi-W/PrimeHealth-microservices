@@ -206,9 +206,12 @@ function AppShell() {
         <Route path="/doctors/:doctorId" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><DoctorDetailsPage auth={auth} /></ProtectedRoute>} />
         <Route path="/telemedicine" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><TelemedicinePage auth={auth} /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><ProfilePage auth={auth} onProfileSync={handleProfileSync} /></ProtectedRoute>} />
+        <Route path="/patient/profile" element={<Navigate replace to="/profile" />} />
         <Route path="/medical-history" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><MedicalHistoryPage auth={auth} /></ProtectedRoute>} />
         <Route path="/risk-score" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><RiskScorePage auth={auth} /></ProtectedRoute>} />
+        <Route path="/patient/risk-score" element={<Navigate replace to="/risk-score" />} />
         <Route path="/reminders" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><RemindersPage auth={auth} /></ProtectedRoute>} />
+        <Route path="/patient/reminders" element={<Navigate replace to="/reminders" />} />
         <Route path="/symptom-checker" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><SymptomCheckerPage auth={auth} /></ProtectedRoute>} />
         <Route path="/family-profiles" element={<ProtectedRoute auth={auth} allowedRoles={['patient']}><FamilyProfilesPage auth={auth} /></ProtectedRoute>} />
         <Route path="/health-risk-analyzer" element={<Navigate replace to="/risk-score" />} />
@@ -276,7 +279,7 @@ function PortalShell({ theme, title, subtitle, userLabel, onLogout, links, child
           </div>
         </aside>
 
-        <main className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
           {children}
         </main>
       </div>

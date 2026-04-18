@@ -10,7 +10,7 @@ import Footer from '../components/Landing/Footer';
 
 export default function LandingPage() {
   return (
-    <div className="w-full overflow-hidden bg-brand-radial">
+    <div className="w-full overflow-x-hidden bg-brand-radial">
       <LandingHero />
       <FeaturesSection />
       <HowItWorks />

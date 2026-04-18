@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import EmptyState from '../components/EmptyState';
 import LoadingState from '../components/LoadingState';
-import SummaryCard from '../components/SummaryCard';
+import StarRating from '../components/StarRating';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 import {
+  fetchDoctorReviews,
+  getDoctorById,
   getDoctors,
   summarizeDoctorAppointments,
   uploadDoctorProfilePicture,
@@ -36,9 +38,19 @@ function toFormValues(doctor) {
   };
 }
 
+function getDoctorImageSrc(profilePicture) {
+  if (!profilePicture) return 'https://placehold.co/120x120?text=Doctor';
+  if (String(profilePicture).startsWith('http')) return profilePicture;
+
+  const base = API_BASE_DOCTOR.replace(/\/+$/, '');
+  const path = String(profilePicture).startsWith('/') ? profilePicture : `/${profilePicture}`;
+  return `${base}${path}`;
+}
+
 function DoctorProfilePage({ auth }) {
   const [doctors, setDoctors] = useState([]);
   const [doctor, setDoctor] = useState(null);
+  const [reviewSummary, setReviewSummary] = useState({ averageRating: 0, totalRatings: 0, reviews: [] });
   const [identitySource, setIdentitySource] = useState('missing');
   const [formValues, setFormValues] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
@@ -51,12 +63,44 @@ function DoctorProfilePage({ auth }) {
       try {
         setLoading(true);
         const data = await getDoctors();
-        const resolved = resolveCurrentDoctor(data);
+        let resolved = resolveCurrentDoctor(data);
+
+        // Fallback: if local identity resolution fails, attempt direct lookup from auth user id(s).
+        if (!resolved.doctor) {
+          const candidateIds = [
+            auth?.user?.id,
+            auth?.user?._id,
+            auth?.user?.userId
+          ].filter(Boolean);
+
+          for (const candidate of candidateIds) {
+            // eslint-disable-next-line no-await-in-loop
+            const direct = await getDoctorById(candidate).catch(() => null);
+            if (direct) {
+              resolved = { doctor: direct, source: 'direct-id' };
+              break;
+            }
+          }
+        }
 
         setDoctors(data);
         setDoctor(resolved.doctor);
         setIdentitySource(resolved.source);
         setFormValues(toFormValues(resolved.doctor));
+
+        const resolvedId = resolved?.doctor?._id || resolved?.doctor?.id;
+        if (resolvedId) {
+          localStorage.setItem('primehealth:doctorId', String(resolvedId));
+          localStorage.setItem('primehealth:userId', String(resolvedId));
+          const reviews = await fetchDoctorReviews(resolvedId).catch(() => ({
+            averageRating: Number(resolved.doctor?.ratingAverage || 0),
+            totalRatings: Number(resolved.doctor?.ratingCount || 0),
+            reviews: []
+          }));
+          setReviewSummary(reviews);
+        } else {
+          setReviewSummary({ averageRating: 0, totalRatings: 0, reviews: [] });
+        }
       } catch (error) {
         toast.error(error.message || 'Failed to load doctor profile');
       } finally {
@@ -65,10 +109,11 @@ function DoctorProfilePage({ auth }) {
     };
 
     loadProfile();
-  }, []);
+  }, [auth?.user?.id, auth?.user?._id, auth?.user?.userId]);
 
   const appointmentSummary = useMemo(() => summarizeDoctorAppointments(doctor), [doctor]);
   const availabilityDays = doctor?.availability?.length || 0;
+  const doctorIdentifier = doctor?._id || doctor?.id;
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -86,7 +131,7 @@ function DoctorProfilePage({ auth }) {
   const handleSave = async (event) => {
     event.preventDefault();
 
-    if (!doctor?._id) {
+    if (!doctorIdentifier) {
       toast.error('No logged-in doctor profile was found');
       return;
     }
@@ -104,12 +149,16 @@ function DoctorProfilePage({ auth }) {
         bio: formValues.bio.trim()
       };
 
-      const updatedDoctor = await updateDoctor(doctor._id, payload);
+      const updatedDoctor = await updateDoctor(doctorIdentifier, payload);
       setDoctor(updatedDoctor);
       setDoctors((current) =>
-        current.map((item) => (item._id === updatedDoctor._id ? updatedDoctor : item))
+        current.map((item) => (String(item._id || item.id) === String(updatedDoctor._id || updatedDoctor.id) ? updatedDoctor : item))
       );
       setFormValues(toFormValues(updatedDoctor));
+      const reviews = await fetchDoctorReviews(updatedDoctor._id || updatedDoctor.id).catch(() => null);
+      if (reviews) {
+        setReviewSummary(reviews);
+      }
       setEditing(false);
       toast.success('Profile updated successfully');
     } catch (error) {
@@ -121,14 +170,32 @@ function DoctorProfilePage({ auth }) {
 
   const handlePhotoUpload = async (event) => {
     const file = event.target.files?.[0];
-    if (!file || !doctor?._id) {
+    if (!file || !doctorIdentifier) {
+      return;
+    }
+
+    if (!file.type?.startsWith('image/')) {
+      toast.error('Please select an image file');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be 5MB or less');
+      event.target.value = '';
       return;
     }
 
     try {
       setUploadingPhoto(true);
-      const updated = await uploadDoctorProfilePicture(doctor._id, file);
-      setDoctor(updated);
+      const updated = await uploadDoctorProfilePicture(doctorIdentifier, file);
+      const refreshed = await getDoctorById(doctorIdentifier).catch(() => null);
+      const finalDoctor = refreshed || updated;
+      setDoctor(finalDoctor);
+      setDoctors((current) =>
+        current.map((item) =>
+          String(item._id || item.id) === String(finalDoctor?._id || finalDoctor?.id) ? finalDoctor : item
+        )
+      );
       toast.success('Profile picture updated');
     } catch (error) {
       toast.error(error.message || 'Failed to upload profile picture');
@@ -152,51 +219,39 @@ function DoctorProfilePage({ auth }) {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <Link to="/" className="text-sm font-semibold text-brand-700 hover:text-brand-800">
-            Back to dashboard
-          </Link>
-          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">
-            My Doctor Profile
-          </p>
-          <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">
-            Dr. {doctor.name}
-          </h2>
-          <p className="mt-2 text-base text-slate-600">
-            Update the personal and professional details patients and staff use across PrimeHealth.
-          </p>
-        </div>
-
-        <button type="button" className="button-primary" onClick={() => setEditing(true)}>
-          Edit
-        </button>
-      </section>
-
-      <section className="panel p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <img
-              src={doctor.profilePicture ? `http://localhost:5002${doctor.profilePicture}` : 'https://placehold.co/120x120?text=Doctor'}
-              alt="Doctor profile"
-              className="h-24 w-24 rounded-2xl border border-brand-100 object-cover"
-            />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Profile picture</p>
-              <p className="text-xs text-slate-500">Upload a clear professional image for patient trust.</p>
-            </div>
+    <div className="space-y-6 animate-fade-up">
+      <section className="panel p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brand-600">
+              My Doctor Profile
+            </p>
+            <h2 className="mt-2 text-4xl font-semibold tracking-tight text-slate-900">
+              Dr. {doctor.name}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Keep your profile concise, accurate, and patient-friendly.
+            </p>
           </div>
-          <label className="button-secondary cursor-pointer">
-            {uploadingPhoto ? 'Uploading...' : 'Upload / Update Photo'}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handlePhotoUpload}
-              disabled={uploadingPhoto}
-            />
-          </label>
+          <div className="pr-2 pt-1">
+            <label className="group relative block cursor-pointer">
+              <img
+                src={getDoctorImageSrc(doctor.profilePicture)}
+                alt="Doctor profile"
+                className="h-28 w-28 rounded-full border-2 border-brand-100 object-cover shadow-sm"
+              />
+              <span className="absolute bottom-0 right-0 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-brand-600 text-xs text-white shadow-sm transition group-hover:bg-brand-700">
+                {uploadingPhoto ? '...' : '✎'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePhotoUpload}
+                disabled={uploadingPhoto}
+              />
+            </label>
+          </div>
         </div>
       </section>
 
@@ -207,65 +262,95 @@ function DoctorProfilePage({ auth }) {
         </p>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <SummaryCard label="Registered Doctors" value={String(doctors.length)} />
-        <SummaryCard label="My Appointments" value={String(appointmentSummary.total)} />
-        <SummaryCard label="Availability Days" value={String(availabilityDays)} />
-        <SummaryCard label="Experience" value={`${doctor.experience} years`} />
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="panel p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-600">
-            Profile Snapshot
-          </p>
-          <div className="mt-5 space-y-4 text-sm">
-            <div>
-              <p className="font-medium text-slate-500">Name</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{doctor.name}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Email</p>
-              <p className="mt-1 text-slate-900">{doctor.email}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Specialization</p>
-              <p className="mt-1 text-slate-900">{doctor.specialization}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Phone number</p>
-              <p className="mt-1 text-slate-900">{doctor.phoneNumber || 'Not set'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Qualifications</p>
-              <p className="mt-1 text-slate-900">{doctor.qualifications || 'Not set'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Experience</p>
-              <p className="mt-1 text-slate-900">{doctor.experience} years</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Hospital / Clinic</p>
-              <p className="mt-1 text-slate-900">{doctor.hospitalOrClinic || 'Not set'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Bio</p>
-              <p className="mt-1 text-slate-900">{doctor.bio || 'Not set'}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Ratings</p>
-              <p className="mt-1 text-slate-900">{Number(doctor.ratingAverage || 0).toFixed(1)} / 5 ({doctor.ratingCount || 0})</p>
+      <section className="panel p-4">
+        <div className="grid gap-2 rounded-xl border border-brand-100 bg-brand-50/35 p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg bg-white/90 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overall Rating</p>
+            <div className="mt-1">
+              <StarRating
+                value={reviewSummary.averageRating}
+                size="sm"
+                showValue
+                reviewCount={reviewSummary.totalRatings}
+              />
             </div>
           </div>
+          {[
+            ['Total Reviews', `${reviewSummary.totalRatings || 0} reviews`],
+            ['Available Days', `${availabilityDays}`],
+            ['Appointments', `${appointmentSummary.total} weekly`]
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-white/90 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
+            </div>
+          ))}
         </div>
+      </section>
 
-        <form className="panel p-6" onSubmit={handleSave}>
+      <section className="panel p-4">
+        <p className="text-base font-semibold text-slate-900">Professional Credentials & Clinical Presence</p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          <div className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Credentials</p>
+            <ul className="mt-2 space-y-1.5 text-sm text-slate-800">
+              <li>- {doctor.qualifications || 'Not set'}</li>
+              <li>- Specialization: {doctor.specialization || 'Not set'}</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Experience</p>
+            <ul className="mt-2 space-y-1.5 text-sm text-slate-800">
+              <li>- Work history: {doctor.experience} years</li>
+              <li>- Clinical focus: {doctor.specialization || 'General medicine'}</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Clinic Presence</p>
+            <ul className="mt-2 space-y-1.5 text-sm text-slate-800">
+              <li>- Primary clinic: {doctor.hospitalOrClinic || 'Not set'}</li>
+              <li>- Location: Colombo, Sri Lanka</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel p-4">
+        <p className="text-base font-semibold text-slate-900">Contact & Personal Summary</p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Contact Details</p>
+            <div className="mt-2 space-y-2 text-sm text-slate-800">
+              <p><span className="font-semibold text-slate-900">Name:</span> {doctor.name}</p>
+              <p className="flex items-center gap-2">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px]">
+                  ✉
+                </span>
+                <span><span className="font-semibold text-slate-900">Email:</span> {doctor.email}</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px]">
+                  ☎
+                </span>
+                <span><span className="font-semibold text-slate-900">Phone:</span> {doctor.phoneNumber || 'Not set'}</span>
+              </p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Bio</p>
+            <p className="mt-2 text-sm text-slate-800">{doctor.bio || 'Not set'}</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <form className="panel p-5" onSubmit={handleSave}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-600">
                 Edit Details
               </p>
-              <h3 className="mt-2 text-2xl font-semibold text-slate-900">
+              <h3 className="mt-1 text-xl font-semibold text-slate-900">
                 Personal and professional information
               </h3>
             </div>
@@ -276,9 +361,9 @@ function DoctorProfilePage({ auth }) {
             ) : null}
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Name</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Name</span>
               <input
                 name="name"
                 value={formValues.name}
@@ -290,7 +375,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Email</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Email</span>
               <input
                 name="email"
                 type="email"
@@ -303,7 +388,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Phone number</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Phone number</span>
               <input
                 name="phoneNumber"
                 value={formValues.phoneNumber}
@@ -314,7 +399,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">
                 Specialization
               </span>
               <input
@@ -328,7 +413,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Qualifications</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Qualifications</span>
               <input
                 name="qualifications"
                 value={formValues.qualifications}
@@ -339,7 +424,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-600">
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">
                 Experience
               </span>
               <input
@@ -355,7 +440,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block md:col-span-2">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Hospital / Clinic</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Hospital / Clinic</span>
               <input
                 name="hospitalOrClinic"
                 value={formValues.hospitalOrClinic}
@@ -366,7 +451,7 @@ function DoctorProfilePage({ auth }) {
             </label>
 
             <label className="block md:col-span-2">
-              <span className="mb-2 block text-sm font-medium text-slate-600">Description / Bio</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-600">Description / Bio</span>
               <textarea
                 name="bio"
                 value={formValues.bio}
@@ -377,7 +462,7 @@ function DoctorProfilePage({ auth }) {
             </label>
           </div>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
             {editing ? (
               <>
                 <button

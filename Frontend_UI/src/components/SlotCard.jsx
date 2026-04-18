@@ -2,6 +2,7 @@ import clsx from '../utils/clsx';
 
 function SlotCard({ slot, onBook, onToggleStatus, onEdit, onDelete, disabled }) {
   const isAvailable = slot.status === 'available';
+  const canManage = Boolean(onToggleStatus || onEdit || onDelete);
 
   return (
     <div
@@ -20,32 +21,42 @@ function SlotCard({ slot, onBook, onToggleStatus, onEdit, onDelete, disabled }) 
         <p className="mt-1 text-xs uppercase tracking-[0.2em]">{slot.status}</p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onToggleStatus?.(slot)}
-          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700"
-        >
-          {isAvailable ? 'Mark booked' : 'Mark available'}
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onEdit?.(slot)}
-          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-brand-700"
-        >
-          Edit
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onDelete?.(slot)}
-          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700"
-        >
-          Delete
-        </button>
-      </div>
+      {canManage ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onToggleStatus ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggleStatus(slot)}
+              className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+            >
+              {isAvailable ? 'Mark booked' : 'Mark available'}
+            </button>
+          ) : null}
+          {onEdit ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onEdit(slot)}
+              className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-brand-700"
+            >
+              Edit
+            </button>
+          ) : null}
+          {onDelete ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onDelete(slot)}
+              className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700"
+            >
+              Delete
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">Read only</span>
+      )}
     </div>
   );
 }

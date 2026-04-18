@@ -1,45 +1,52 @@
 import axios from 'axios';
+import {
+  API_BASE_ADMIN,
+  API_BASE_APPOINTMENT,
+  API_BASE_DOCTOR,
+  API_BASE_PATIENT,
+  API_BASE_PAYMENT,
+  API_BASE_PRESCRIPTION,
+  API_BASE_TELEMEDICINE
+} from '../config/apiBase';
 
 const API_TIMEOUT_MS = 12000;
 
 const patientApi = axios.create({
-  baseURL: import.meta.env.VITE_PATIENT_API_URL || 'http://localhost:5007',
+  baseURL: API_BASE_PATIENT,
   timeout: API_TIMEOUT_MS
 });
 
 const doctorApi = axios.create({
-  baseURL: import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002',
+  baseURL: API_BASE_DOCTOR,
   timeout: API_TIMEOUT_MS
 });
 
 const appointmentApi = axios.create({
-  baseURL: import.meta.env.VITE_APPOINTMENT_API_URL || 'http://localhost:5003',
+  baseURL: API_BASE_APPOINTMENT,
   timeout: API_TIMEOUT_MS
 });
 
 const paymentApi = axios.create({
-  baseURL: import.meta.env.VITE_PAYMENT_API_URL || 'http://localhost:5004',
+  baseURL: API_BASE_PAYMENT,
   timeout: API_TIMEOUT_MS
 });
 
 const adminApi = axios.create({
-  baseURL: import.meta.env.VITE_ADMIN_API_URL || 'http://localhost:5001',
+  baseURL: API_BASE_ADMIN,
   timeout: API_TIMEOUT_MS
 });
 
 const prescriptionApi = axios.create({
-  baseURL: import.meta.env.VITE_PRESCRIPTION_API_URL || 'http://localhost:5005',
+  baseURL: API_BASE_PRESCRIPTION,
   timeout: API_TIMEOUT_MS
 });
 
 const telemedicineApi = axios.create({
-  baseURL: import.meta.env.VITE_TELEMEDICINE_API_URL || 'http://localhost:5006',
+  baseURL: API_BASE_TELEMEDICINE,
   timeout: API_TIMEOUT_MS
 });
 
-export const TELEMEDICINE_BASE_URL =
-  import.meta.env.VITE_TELEMEDICINE_API_URL ||
-  'http://localhost:5006';
+export const TELEMEDICINE_BASE_URL = API_BASE_TELEMEDICINE;
 
 function unwrap(response) {
   return response?.data?.data ?? response?.data ?? null;
@@ -72,18 +79,20 @@ function resolveAuthContext(authOrToken) {
   const role = user.role || localStorage.getItem('primehealth:role') || '';
   const email = user.email || '';
   const uniqueId = user.uniqueId || '';
-  return { token, userId, role: normalizeRole(role), email, uniqueId };
+  const externalRef = user.externalRef || user.adminId || '';
+  return { token, userId, role: normalizeRole(role), email, uniqueId, externalRef };
 }
 
 export function authHeaders(authOrToken) {
-  const { token, userId, role, email, uniqueId } = resolveAuthContext(authOrToken);
+  const { token, userId, role, email, uniqueId, externalRef } = resolveAuthContext(authOrToken);
   const headers = {};
 
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (userId) headers['x-user-id'] = userId;
+  if (userId) headers['x-user-id'] = String(userId);
   if (role) headers['x-user-role'] = role;
   if (email) headers['x-user-email'] = email;
-  if (uniqueId) headers['x-user-unique-id'] = uniqueId;
+  if (uniqueId) headers['x-user-unique-id'] = String(uniqueId);
+  if (externalRef) headers['x-user-external-ref'] = String(externalRef);
 
   return headers;
 }
@@ -102,7 +111,9 @@ export async function signUp(payload) {
     email: payload.email,
     password: payload.password,
     name: payload.fullName,
-    specialty: payload.specialization
+    specialty: payload.specialization,
+    phone: payload.phone,
+    experience: payload.experience ?? payload.yearsOfExperience
   });
   return unwrap(response);
 }
@@ -117,9 +128,20 @@ export async function fetchDoctorById(doctorId) {
   return unwrap(response);
 }
 
-export async function fetchDoctorAppointments(token) {
+export async function fetchDoctorAppointments(authOrToken, filters = {}) {
+  const params = {};
+  if (filters.status && String(filters.status).toUpperCase() !== 'ALL') {
+    params.status = String(filters.status).toUpperCase();
+  }
+  if (filters.paymentStatus && String(filters.paymentStatus).trim()) {
+    params.paymentStatus = String(filters.paymentStatus).toUpperCase();
+  }
+  if (filters.page) params.page = filters.page;
+  if (filters.limit) params.limit = filters.limit;
+
   const response = await appointmentApi.get('/api/appointments', {
-    headers: authHeaders(token)
+    headers: authHeaders(authOrToken),
+    params
   });
   return unwrapAppointmentCollection(response);
 }
@@ -226,6 +248,35 @@ export async function initiatePayment(authOrToken, payload) {
   return unwrap(response);
 }
 
+/**
+ * `SIMULATED` (default): no PayHere — server creates a pending payment then `/confirm` marks it paid.
+ * `PAYHERE`: returns hosted checkout; caller must POST the form to PayHere.
+ */
+export function getConfiguredPaymentProvider() {
+  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'SIMULATED').trim().toUpperCase();
+  return v === 'PAYHERE' ? 'PAYHERE' : 'SIMULATED';
+}
+
+/**
+ * @returns {Promise<{ kind: 'payhere', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
+ */
+export async function initiatePaymentFlow(authOrToken, payload) {
+  const provider = payload.provider || getConfiguredPaymentProvider();
+  const initiated = await initiatePayment(authOrToken, { ...payload, provider });
+
+  if (initiated?.checkout?.gateway === 'PAYHERE') {
+    return { kind: 'payhere', initiated };
+  }
+
+  const orderId = initiated?.orderId;
+  if (!orderId) {
+    throw new Error('Payment order was not created');
+  }
+
+  const confirmed = await confirmPayment(authOrToken, orderId);
+  return { kind: 'simulated', initiated, confirmed };
+}
+
 export function submitHostedCheckout(checkout, target = '_self') {
   if (!checkout?.actionUrl || !checkout?.fields) {
     throw new Error('Checkout payload is incomplete.');
@@ -247,6 +298,20 @@ export function submitHostedCheckout(checkout, target = '_self') {
   document.body.appendChild(form);
   form.submit();
   document.body.removeChild(form);
+}
+
+/**
+ * PayHere hosted checkout lives on PayHere’s domain (sandbox or live), not inside the SPA.
+ * Default `_blank` opens it in a new tab so payment is clearly separate from PrimeHealth.
+ * Set `VITE_PAYHERE_CHECKOUT_TARGET=_self` in `.env.local` to use the same tab instead.
+ */
+export function getPayHereCheckoutTarget() {
+  const raw = String(import.meta.env.VITE_PAYHERE_CHECKOUT_TARGET || '_blank').trim();
+  return raw === '_self' || raw === '_blank' ? raw : '_blank';
+}
+
+export function submitPayHereHostedCheckout(checkout) {
+  submitHostedCheckout(checkout, getPayHereCheckoutTarget());
 }
 
 export async function confirmPayment(authOrToken, orderId) {
@@ -390,6 +455,17 @@ export async function fetchAdminAppointmentAnalytics(token) {
   return unwrap(response) || null;
 }
 
+export async function fetchAdminAppointments(authOrToken, params = {}) {
+  const response = await appointmentApi.get('/api/appointments', {
+    headers: authHeaders(authOrToken),
+    params
+  });
+  const payload = unwrap(response);
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.appointments)) return payload.appointments;
+  return [];
+}
+
 export async function fetchAdminTransactions(token) {
   const response = await adminApi.get('/api/admin/finance/transactions', {
     headers: authHeaders(token)
@@ -495,6 +571,7 @@ export function persistAuth(auth) {
     localStorage.removeItem('primehealth:token');
     localStorage.removeItem('primehealth:role');
     localStorage.removeItem('primehealth:userId');
+    localStorage.removeItem('primehealth:doctorId');
     return;
   }
 
@@ -505,6 +582,11 @@ export function persistAuth(auth) {
   localStorage.setItem('primehealth:token', auth.token || '');
   localStorage.setItem('primehealth:role', role);
   localStorage.setItem('primehealth:userId', userId);
+  if (String(role).toLowerCase() === 'doctor') {
+    localStorage.setItem('primehealth:doctorId', userId);
+  } else {
+    localStorage.removeItem('primehealth:doctorId');
+  }
 }
 
 export function normalizeAuthResponse(response) {

@@ -1,7 +1,8 @@
 ﻿import axios from 'axios';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002',
+  baseURL: API_BASE_DOCTOR,
   timeout: 10000
 });
 

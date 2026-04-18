@@ -1,3 +1,5 @@
+const env = require('../config/env');
+
 const normalize = (value) => String(value || '').trim();
 
 const userIdentifiers = (user) => {
@@ -26,26 +28,24 @@ const canAccessSession = (user, session) => {
     return false;
 };
 
+/**
+ * Time window: allow joining anytime until scheduled end + grace (no "1 hour before" gate).
+ * Aligns with paid consults where parties may connect flexibly.
+ */
 const canJoinSessionNow = (session) => {
-    const start = new Date(session?.scheduledStartAt || 0).getTime();
     const end = new Date(session?.scheduledEndAt || 0).getTime();
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    if (!Number.isFinite(end)) {
         return {
             allowed: false,
             reason: 'Session schedule is invalid.'
         };
     }
 
+    const graceMinutes = env.joinGraceAfterEndMinutes;
+    const graceMs = graceMinutes * 60 * 1000;
     const now = Date.now();
-    const joinOpensAt = start - (60 * 60 * 1000);
-    if (now < joinOpensAt) {
-        return {
-            allowed: false,
-            reason: 'Join is available 1 hour before the scheduled start.'
-        };
-    }
 
-    if (now > end) {
+    if (now > end + graceMs) {
         return {
             allowed: false,
             reason: 'Session has already ended.'
@@ -55,7 +55,20 @@ const canJoinSessionNow = (session) => {
     return { allowed: true, reason: '' };
 };
 
+/**
+ * Join / video-token: time window only (patient or doctor may connect first).
+ */
+const assertTelemedicineVideoAccess = (user, session) => {
+    const timeOk = canJoinSessionNow(session);
+    if (!timeOk.allowed) {
+        return { ...timeOk, code: 'OUTSIDE_JOIN_WINDOW' };
+    }
+
+    return { allowed: true, reason: '', code: '' };
+};
+
 module.exports = {
     canAccessSession,
-    canJoinSessionNow
+    canJoinSessionNow,
+    assertTelemedicineVideoAccess
 };

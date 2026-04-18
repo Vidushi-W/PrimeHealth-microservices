@@ -65,6 +65,8 @@ function buildUserSummary(user) {
     isVerified: user.isVerified,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+    externalRef: user.externalRef || "",
+    uniqueId: user.uniqueId || "",
   };
 }
 

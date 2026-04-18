@@ -150,12 +150,16 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | `ADMIN_MONGO_URI` | Mongo URI for **admin-analytics-service** (`<mongo-uri>` for admin DB) |
 | `MONGO_URI_DOCTOR`, `MONGO_URI_PATIENT`, `MONGO_URI_APPOINTMENT`, `MONGO_URI_PAYMENT`, `MONGO_URI_PRESCRIPTION`, `TELEMEDICINE_MONGO_URI` | Per-service Mongo URIs (defaults work with single Docker Mongo host) |
 | `INTERNAL_SERVICE_TOKEN` | Shared secret for internal sync routes |
-| `PAYMENT_PROVIDER`, `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_USE_SANDBOX`, `PAYHERE_NOTIFY_URL`, `PAYHERE_FRONTEND_BASE_URL` | PayHere integration |
+| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `PAYHERE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm, no PayHere). Set `PAYMENT_PROVIDER=PAYHERE` and sandbox credentials when ready. Guide: [docs/PAYHERE_SANDBOX.md](docs/PAYHERE_SANDBOX.md). |
 | `CORS_ORIGIN` | Allowed browser origin(s) |
 
 **Frontend** (`Frontend_UI/.env.local` — optional, not committed):
 
 ```env
+# Optional: set to 127.0.0.1 (default in code) or your LAN IP. Helps when "localhost" hits IPv6 and Docker ports are IPv4-only on Windows.
+# VITE_API_HOST=127.0.0.1
+# Dev server uses same-origin /__ph/* proxies by default; set to false to call APIs directly:
+# VITE_DEV_PROXY=false
 VITE_PATIENT_API_URL=http://localhost:<patient-service-port>
 VITE_DOCTOR_API_URL=http://localhost:<doctor-service-port>
 VITE_APPOINTMENT_API_URL=http://localhost:<appointment-service-port>
@@ -163,6 +167,10 @@ VITE_PAYMENT_API_URL=http://localhost:<payment-service-port>
 VITE_PRESCRIPTION_API_URL=http://localhost:<prescription-service-port>
 VITE_TELEMEDICINE_API_URL=http://localhost:<telemedicine-service-port>
 VITE_ADMIN_API_URL=http://localhost:<admin-service-port>
+# Match the backend: SIMULATED (default) or PAYHERE
+# VITE_PAYMENT_PROVIDER=SIMULATED
+# Optional: PayHere opens in a new tab by default (`_blank`). Use `_self` for same-tab redirect.
+# VITE_PAYHERE_CHECKOUT_TARGET=_self
 ```
 
 Default ports used by the frontend code match the **full** Docker stack (see table below).
@@ -171,29 +179,32 @@ Default ports used by the frontend code match the **full** Docker stack (see tab
 
 ## How to Run with Docker
 
-### A. Full platform (recommended for evaluation)
+### Full platform (recommended)
 
-Path: **`<docker-compose-full-path>`** = `micro-services/docker/docker-compose.yml`
+Path: **`docker-compose.yml`** at the **repository root**. Compose loads the root **`.env`** automatically, so `MONGO_URI_DOCTOR`, `MONGO_URI_PATIENT`, Atlas URIs, PayHere, and `INTERNAL_SERVICE_TOKEN` interpolate without extra flags.
 
 ```bash
 git clone <your-repo-url>
 cd PrimeHealth-microservices
-# Create and edit .env at repo root (JWT, Mongo URIs, PayHere, INTERNAL_SERVICE_TOKEN)
-cd micro-services/docker
-docker compose up --build
+# Copy .env.example → .env and fill JWT, per-service Mongo URIs, PayHere, INTERNAL_SERVICE_TOKEN
+docker compose up --build -d
 ```
 
-Starts: **MongoDB**, **admin-analytics**, **doctor**, **patient**, **appointment**, **payment**, **prescription**, **telemedicine**.
+Starts: **admin-analytics**, **doctor**, **patient**, **appointment**, **payment**, **prescription**, **telemedicine**.
 
-### B. Slim stack (subset for quick demo)
+**Cross-database sync:** The **admin** database is the source of truth for registered users. On **login**, doctors are pushed to **doctor-service** and **patient-service**; patients are pushed to **patient-service**. **Doctor-service** also calls **admin** (`GET /api/internal/doctors/directory`) before listing doctors so the **PrimeHealth-doctor** database stays aligned with admin when per-service DBs were empty or stale. Set the same **`INTERNAL_SERVICE_TOKEN`** everywhere; Compose sets **`ADMIN_SERVICE_URL`** for **doctor-service**.
 
-From **repo root** (`<docker-compose-path>` = `docker-compose.yml`):
+**MongoDB in Docker:** not started by default (use **MongoDB Atlas** via `.env`). To add a local MongoDB container:
 
 ```bash
-docker compose up --build
+docker compose --profile local-mongo up --build -d
 ```
 
-Starts: two Mongo instances, **doctor**, **appointment**, **payment**, **api-gateway**, **frontend** (nginx on port **3000**). Does **not** include patient / telemedicine / admin from this file.
+**From `micro-services/docker/`:** that `docker-compose.yml` **includes** the root file, so either directory runs the same stack:
+
+```bash
+cd micro-services/docker && docker compose up --build -d
+```
 
 ### Verify containers
 
@@ -206,8 +217,7 @@ docker logs <container-name>
 
 | Stack | Frontend URL |
 |-------|----------------|
-| Slim (root compose) | `http://localhost:3000` |
-| Full + Vite dev | Run `npm run dev` in `Frontend_UI` → usually `http://localhost:5173` with `.env.local` pointing to published ports |
+| Docker (APIs only) | Run **`npm run dev`** in `Frontend_UI` → usually `http://localhost:5173` with `Frontend_UI/.env.local` pointing at published ports (e.g. patient **5007**, appointment **5003**) |
 
 ### Backend health checks (examples)
 
@@ -361,9 +371,8 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 4. **Run Docker Compose**
 
-   - **Full stack:**  
-     `cd micro-services/docker` → `docker compose up --build`  
-   - **Slim stack:** from repo root → `docker compose up --build`
+   - From **repo root:** `docker compose up --build -d`  
+   - Or: `cd micro-services/docker` → `docker compose up --build -d` (includes root compose)
 
 5. **Verify containers are running**
 
@@ -372,8 +381,7 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 6. **Access the frontend**
 
-   - Slim stack: **http://localhost:3000**
-   - Full stack + hot reload: **http://localhost:5173** after `npm run dev` in `Frontend_UI`
+   - **http://localhost:5173** after `npm run dev` in `Frontend_UI` (configure `.env.local` for service URLs)
 
 7. **Access backend services**
 
@@ -397,7 +405,7 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 - This **README** with deployment and run instructions  
 - **React** frontend (`Frontend_UI/`)  
 - **Microservices** source (`micro-services/services/`)  
-- **Docker Compose** (root + `micro-services/docker/`)  
+- **Docker Compose** (canonical **`docker-compose.yml`** at repo root; `micro-services/docker/` includes it)  
 - **Kubernetes** sample manifests (`k8s/`, `micro-services/k8s/`)  
 - **REST** APIs; **WebSockets** where enabled (telemedicine)
 
@@ -418,4 +426,4 @@ Fine-grained contributions: see **Git history** and branches.
 
 ## Conclusion
 
-PrimeHealth demonstrates a **realistic microservices** design for smart healthcare: **React** on the client, **Node.js** services on the server, **MongoDB** for persistence, **Docker** for reproducible local deployment, optional **Kubernetes** for orchestration demos, and integrations (**PayHere**, **Jitsi**) suitable for academic evaluation. Use **`micro-services/docker/docker-compose.yml`** for the **fullest** local experience; use the **root** compose for a **lighter** appointment/payment path; use **manual** runs when debugging a single service.
+PrimeHealth demonstrates a **realistic microservices** design for smart healthcare: **React** on the client, **Node.js** services on the server, **MongoDB** for persistence, **Docker** for reproducible local deployment, optional **Kubernetes** for orchestration demos, and integrations (**PayHere**, **Jitsi**) suitable for academic evaluation. Run **`docker compose up`** from the **repository root** (or **`micro-services/docker`**, which includes the same file) for the full stack; use **manual** runs when debugging a single service.

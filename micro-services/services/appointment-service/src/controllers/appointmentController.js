@@ -6,6 +6,7 @@ async function resolveDoctorIdentifiersForRequest(user) {
 
   if (user?.id) identifiers.add(String(user.id));
   if (user?.uniqueId) identifiers.add(String(user.uniqueId));
+  if (user?.externalRef) identifiers.add(String(user.externalRef));
 
   const lookups = [user?.id, user?.email].filter(Boolean);
   for (const lookup of lookups) {
@@ -22,6 +23,13 @@ async function resolveDoctorIdentifiersForRequest(user) {
   return [...identifiers].filter(Boolean);
 }
 
+function collectPatientIdentifiers(req) {
+  const ids = [req.user?.id, req.user?.uniqueId, req.user?.externalRef]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
 class AppointmentController {
   // POST /api/appointments
   async createAppointment(req, res, next) {
@@ -29,8 +37,12 @@ class AppointmentController {
       const appointment = await appointmentService.createAppointment({
         patientId: req.user ? req.user.id : req.body.patientId,
         patientName: req.user ? req.user.fullName : req.body.patientName,
+        patientEmail: req.user ? req.user.email : req.body.patientEmail,
+        patientPhone: req.body.patientPhone,
         doctorId: req.body.doctorId,
         doctorName: req.body.doctorName,
+        doctorEmail: req.body.doctorEmail,
+        doctorPhone: req.body.doctorPhone,
         specialty: req.body.specialty,
         appointmentDate: req.body.appointmentDate,
         startTime: req.body.startTime,
@@ -61,16 +73,21 @@ class AppointmentController {
       if (req.query.paymentStatus) filters.paymentStatus = req.query.paymentStatus;
       if (req.query.date) filters.appointmentDate = req.query.date;
 
-      // Respect user roles implicitly
-      if (req.user && req.user.role === 'DOCTOR') {
+      // Respect user roles implicitly (headers may send mixed-case roles)
+      const userRole = String(req.user?.role || '').toUpperCase();
+      if (req.user && userRole === 'DOCTOR') {
         const doctorIdentifiers = await resolveDoctorIdentifiersForRequest(req.user);
         if (doctorIdentifiers.length) {
           filters.doctorId = { $in: doctorIdentifiers };
         } else {
           filters.doctorId = req.user.id;
         }
-      } else if (req.user && req.user.role === 'PATIENT') {
-        filters.patientId = req.user.id;
+      } else if (req.user && userRole === 'PATIENT') {
+        const pids = collectPatientIdentifiers(req);
+        if (!pids.length) {
+          return res.status(400).json({ success: false, message: 'Patient ID required' });
+        }
+        filters.patientId = pids.length === 1 ? pids[0] : { $in: pids };
       }
 
       const pagination = {
@@ -93,8 +110,8 @@ class AppointmentController {
   // GET /api/appointments/my  (Patient only)
   async getMyAppointments(req, res, next) {
     try {
-      const patientId = req.user ? req.user.id : req.query.patientId;
-      if (!patientId) {
+      const idList = collectPatientIdentifiers(req);
+      if (!idList.length) {
         return res.status(400).json({ success: false, message: 'Patient ID required' });
       }
 
@@ -103,7 +120,7 @@ class AppointmentController {
         limit: parseInt(req.query.limit, 10) || 20
       };
 
-      const result = await appointmentService.getMyAppointments(patientId, pagination);
+      const result = await appointmentService.getMyAppointmentsForPatientIds(idList, pagination);
 
       res.status(200).json({
         success: true,
@@ -121,10 +138,15 @@ class AppointmentController {
       const appointment = await appointmentService.getAppointmentById(req.params.id);
 
       // Authorization check
-      if (req.user && req.user.role === 'PATIENT' && appointment.patientId !== req.user.id) {
-        return res.status(403).json({ success: false, message: 'Forbidden' });
+      const userRole = String(req.user?.role || '').toUpperCase();
+      if (req.user && userRole === 'PATIENT') {
+        const allowed = collectPatientIdentifiers(req);
+        const apptPatient = String(appointment.patientId || '');
+        if (!allowed.some((id) => String(id) === apptPatient)) {
+          return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
       }
-      if (req.user && req.user.role === 'DOCTOR') {
+      if (req.user && userRole === 'DOCTOR') {
         const doctorIdentifiers = await resolveDoctorIdentifiersForRequest(req.user);
         const canAccess = doctorIdentifiers.length
           ? doctorIdentifiers.includes(String(appointment.doctorId))

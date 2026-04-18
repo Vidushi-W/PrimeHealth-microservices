@@ -13,10 +13,13 @@ const Transaction = require('./models/Transaction');
 const Appointment = require('./models/Appointment');
 const AuditLog = require('./models/AuditLog');
 const { getNextUniqueIdForRole, syncCounterForRole } = require('./utils/uniqueUserId');
+const adminAnalyticsRoutes = require('./routes/adminAnalyticsRoutes');
 
 const { requirePermission, RBAC } = auth;
 
 dotenv.config();
+
+const ADMIN_DB_URI = process.env.MONGO_URI || process.env.ADMIN_MONGO_URI || '';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -27,15 +30,32 @@ const PATIENT_SERVICE_URL = process.env.PATIENT_SERVICE_URL || 'http://localhost
 const INTERNAL_SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || '';
 const CROSS_SERVICE_SYNC_STRICT = process.env.CROSS_SERVICE_SYNC_STRICT === 'true';
 
+const assertInternalServiceRequest = (req, res, next) => {
+    if (!INTERNAL_SERVICE_TOKEN) {
+        return res.status(503).json({
+            success: false,
+            message: 'INTERNAL_SERVICE_TOKEN is not configured.'
+        });
+    }
+
+    const token = req.header('x-internal-service-token') || '';
+
+    if (token !== INTERNAL_SERVICE_TOKEN) {
+        return res.status(403).json({ success: false, message: 'Invalid internal service token.' });
+    }
+
+    return next();
+};
+
 app.use(cors());
 app.use(express.json());
 
-const hasRequiredConfig = () => Boolean(process.env.MONGO_URI && process.env.JWT_SECRET);
+const hasRequiredConfig = () => Boolean(ADMIN_DB_URI && process.env.JWT_SECRET);
 const isDatabaseReady = () => mongoose.connection.readyState === 1;
 
 const getServiceReadinessError = () => {
-    if (!process.env.MONGO_URI) {
-        return 'Service configuration missing: MONGO_URI is not set.';
+    if (!ADMIN_DB_URI) {
+        return 'Service configuration missing: MONGO_URI or ADMIN_MONGO_URI is not set.';
     }
 
     if (!process.env.JWT_SECRET) {
@@ -62,13 +82,54 @@ const requireServiceReady = (req, res, next) => {
     return next();
 };
 
+app.use('/api/admin/analytics', requireServiceReady, adminAnalyticsRoutes);
+
+/** Full doctor directory for doctor-service / other microservices (Atlas admin DB is source of truth). */
+app.get('/api/internal/doctors/directory', requireServiceReady, assertInternalServiceRequest, async (req, res) => {
+    try {
+        const doctors = await Doctor.find({
+            $and: [
+                { $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }] },
+                { status: { $nin: ['deactivated'] } }
+            ]
+        })
+            .select('name email specialty experience phoneNumber status uniqueId')
+            .lean();
+
+        const normalize = (status) => String(status || '').trim().toLowerCase();
+        const activeFrom = (status) => !['deactivated', 'inactive', 'suspended'].includes(normalize(status));
+        const verifiedFrom = (status) => normalize(status) === 'verified';
+
+        const data = doctors.map((d) => ({
+            id: d._id.toString(),
+            externalRef: d._id.toString(),
+            uniqueId: d.uniqueId || '',
+            name: d.name,
+            email: d.email,
+            phoneNumber: d.phoneNumber || '',
+            specialty: d.specialty || '',
+            specialization: d.specialty || '',
+            ...(Number.isFinite(Number(d.experience))
+                ? { experience: Math.max(0, Number(d.experience)) }
+                : {}),
+            status: d.status,
+            isActive: activeFrom(d.status),
+            isVerified: verifiedFrom(d.status)
+        }));
+
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 const connectDatabase = async () => {
-    if (!process.env.MONGO_URI) {
-        throw new Error('MONGO_URI is not set. Admin analytics service requires Atlas connectivity.');
+    if (!ADMIN_DB_URI) {
+        throw new Error('MONGO_URI or ADMIN_MONGO_URI is not set. Admin analytics service requires Atlas connectivity.');
     }
 
     try {
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(ADMIN_DB_URI);
         console.log('Connected to MongoDB');
         await ensureUserUniqueIds();
     } catch (error) {
@@ -279,6 +340,7 @@ const runSyncOperation = async (syncLabel, operation) => {
 
 const syncDoctorToDoctorService = async (doctorDoc) =>
     runSyncOperation('doctor-service', async () => {
+        const maybeExperience = Number(doctorDoc.experience);
         await axios.post(
             `${DOCTOR_SERVICE_URL}/api/internal/doctors/sync`,
             {
@@ -287,9 +349,10 @@ const syncDoctorToDoctorService = async (doctorDoc) =>
                 uniqueId: doctorDoc.uniqueId || '',
                 name: doctorDoc.name,
                 email: doctorDoc.email,
+                phoneNumber: doctorDoc.phoneNumber || '',
                 specialty: doctorDoc.specialty || '',
                 specialization: doctorDoc.specialty || '',
-                experience: Number(doctorDoc.experience || 0),
+                ...(Number.isFinite(maybeExperience) ? { experience: Math.max(0, maybeExperience) } : {}),
                 status: doctorDoc.status,
                 isActive: isActiveFromStatus(doctorDoc.status),
                 isVerified: isVerifiedFromStatus(doctorDoc.status)
@@ -513,7 +576,7 @@ app.post('/api/admin/bootstrap', requireServiceReady, async (req, res) => {
 
 app.post('/api/auth/register', requireServiceReady, async (req, res) => {
     try {
-        const { role, email, password, name, specialty } = req.body;
+        const { role, email, password, name, specialty, phone, phoneNumber, experience, yearsOfExperience } = req.body;
 
         if (!role || !isAuthRoleAllowed(role)) {
             return res.status(400).json({
@@ -559,10 +622,13 @@ app.post('/api/auth/register', requireServiceReady, async (req, res) => {
                 permissions: []
             });
         } else if (role === 'doctor') {
+            const parsedExperience = Number(experience ?? yearsOfExperience);
             createdUser = await model.create({
                 ...commonFields,
                 name,
                 specialty: specialty || '',
+                phoneNumber: String(phoneNumber || phone || '').trim(),
+                ...(Number.isFinite(parsedExperience) ? { experience: Math.max(0, parsedExperience) } : {}),
                 permissions: []
             });
             sync = await Promise.all([
@@ -645,8 +711,12 @@ app.post('/api/auth/login', requireServiceReady, async (req, res) => {
         await user.save();
 
         let loginSync = null;
-        if (matchedRole === 'patient' || matchedRole === 'doctor') {
-            loginSync = await syncUserToPatientService(matchedRole, user);
+        if (matchedRole === 'doctor') {
+            const patientServiceSync = await syncUserToPatientService('doctor', user);
+            const doctorServiceSync = await syncDoctorToDoctorService(user);
+            loginSync = { patientService: patientServiceSync, doctorService: doctorServiceSync };
+        } else if (matchedRole === 'patient') {
+            loginSync = await syncUserToPatientService('patient', user);
         }
 
         const tokenPayload = {
@@ -1291,85 +1361,6 @@ app.patch('/api/admin/users/admins/:id/password', requireServiceReady, auth, req
     }
 });
 
-// --- Analytics Endpoints ---
-
-app.get('/api/admin/analytics/summary', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
-    try {
-        const [totalAdmins, totalDoctors, totalPatients] = await Promise.all([
-            Admin.countDocuments(),
-            Doctor.countDocuments(),
-            Patient.countDocuments()
-        ]);
-
-        const revenueAggregation = await Transaction.aggregate([
-            {
-                $group: {
-                    _id: null,
-                    total: { $sum: '$amount' }
-                }
-            }
-        ]);
-
-        const totalRevenue = revenueAggregation.length ? revenueAggregation[0].total : 0;
-
-        return res.json({
-            totalUsers: totalAdmins + totalDoctors + totalPatients,
-            totalDoctors,
-            totalPatients,
-            revenue: {
-                total: totalRevenue,
-                currency: 'LKR'
-            }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'Failed to fetch analytics summary', error: error.message });
-    }
-});
-
-app.get('/api/admin/analytics/appointments', requireServiceReady, auth, requirePermission('analytics.read'), async (req, res) => {
-    try {
-        const byDay = await Appointment.aggregate([
-            {
-                $group: {
-                    _id: {
-                        $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate' }
-                    },
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { _id: 1 } },
-            {
-                $project: {
-                    _id: 0,
-                    date: '$_id',
-                    count: 1
-                }
-            }
-        ]);
-
-        const byStatusAggregation = await Appointment.aggregate([
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        const byStatus = byStatusAggregation.reduce((acc, item) => {
-            if (item._id) {
-                acc[item._id] = item.count;
-            }
-
-            return acc;
-        }, {});
-
-        return res.json({ byDay, byStatus });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'Failed to fetch appointment analytics', error: error.message });
-    }
-});
-
 // --- Doctor and Patient Management ---
 
 app.get('/api/admin/users/doctors', requireServiceReady, auth, requirePermission('user.read'), async (req, res) => {
@@ -1383,7 +1374,7 @@ app.get('/api/admin/users/doctors', requireServiceReady, auth, requirePermission
 
 app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermission('user.create'), async (req, res) => {
     try {
-        const { name, specialty, email, status, permissions, password } = req.body;
+        const { name, specialty, email, status, permissions, password, phoneNumber, phone, experience } = req.body;
 
         if (!name || !email) {
             return res.status(400).json({ success: false, message: 'Name and email are required.' });
@@ -1419,11 +1410,14 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermissio
         }
 
         const passwordHash = password ? await bcrypt.hash(password, 10) : '';
+        const parsedExperience = Number(experience);
 
         const doctor = await Doctor.create({
             name,
             specialty: specialty || '',
             email: normalizeEmail(email),
+            phoneNumber: String(phoneNumber || phone || '').trim(),
+            ...(Number.isFinite(parsedExperience) ? { experience: Math.max(0, parsedExperience) } : {}),
             status: status || 'pending',
             passwordHash,
             permissions: Array.isArray(permissions) ? permissions : [],
@@ -1462,11 +1456,19 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePerm
         }
 
         const updates = {};
-        const { name, specialty, email, status, permissions } = req.body;
+        const { name, specialty, email, status, permissions, phoneNumber, phone, experience } = req.body;
 
         if (name !== undefined) updates.name = name;
         if (specialty !== undefined) updates.specialty = specialty;
         if (email !== undefined) updates.email = normalizeEmail(email);
+        if (phoneNumber !== undefined || phone !== undefined) updates.phoneNumber = String(phoneNumber || phone || '').trim();
+        if (experience !== undefined) {
+            const parsedExperience = Number(experience);
+            if (!Number.isFinite(parsedExperience) || parsedExperience < 0) {
+                return res.status(400).json({ success: false, message: 'experience must be a non-negative number.' });
+            }
+            updates.experience = Math.max(0, parsedExperience);
+        }
 
         if (status !== undefined) {
             if (!allowedUserStatuses.has(status)) {

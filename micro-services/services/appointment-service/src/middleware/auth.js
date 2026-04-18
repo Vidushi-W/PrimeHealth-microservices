@@ -5,8 +5,9 @@ function parseAuthHeaders(req, _res, next) {
   const role = req.header('x-user-role') || null;
   const email = req.header('x-user-email') || null;
   const uniqueId = req.header('x-user-unique-id') || null;
+  const externalRef = req.header('x-user-external-ref') || null;
   const fullName = req.header('x-user-full-name') || null;
-  req.user = { id: userId, role, email, uniqueId, fullName };
+  req.user = { id: userId, role, email, uniqueId, externalRef, fullName };
   next();
 }
 
@@ -22,7 +23,9 @@ function requireRole(...allowedRoles) {
     if (!req.user || !req.user.id || !req.user.role) {
       return next(new ApiError(401, 'Missing authentication headers'));
     }
-    if (!allowedRoles.includes(req.user.role)) {
+    const role = String(req.user.role || '').toUpperCase();
+    const ok = allowedRoles.some((r) => String(r || '').toUpperCase() === role);
+    if (!ok) {
       return next(new ApiError(403, `Forbidden: requires role "${allowedRoles.join(' or ')}"`));
     }
     return next();

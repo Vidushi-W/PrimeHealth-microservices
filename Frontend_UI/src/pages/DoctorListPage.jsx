@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import FindDoctorBookModal from '../components/FindDoctorBookModal';
+import StarRating from '../components/StarRating';
+import { API_BASE_DOCTOR } from '../config/apiBase';
 import { getDoctors } from '../services/doctorService';
+import { resolveCurrentDoctor } from '../utils/currentDoctor';
 
 const WEEKDAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -10,7 +14,7 @@ function getDoctorImageSrc(doctor) {
   if (!picture) return '';
   if (picture.startsWith('http://') || picture.startsWith('https://')) return picture;
 
-  const base = (import.meta.env.VITE_DOCTOR_API_URL || 'http://localhost:5002').replace(/\/+$/, '');
+  const base = API_BASE_DOCTOR.replace(/\/+$/, '');
   const path = picture.startsWith('/') ? picture : `/${picture}`;
   return `${base}${path}`;
 }
@@ -34,12 +38,6 @@ function getNextAvailableSlot(doctor) {
   return 'No open slots right now';
 }
 
-function formatRating(doctor) {
-  const average = Number(doctor?.ratingAverage || 0).toFixed(1);
-  const count = Number(doctor?.ratingCount || 0);
-  return `${average} / 5 (${count})`;
-}
-
 export default function DoctorListPage({ auth }) {
   const role = String(auth?.user?.role || '').toLowerCase();
   const isPatientView = role === 'patient';
@@ -49,6 +47,7 @@ export default function DoctorListPage({ auth }) {
   const [query, setQuery] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [bookModalDoctor, setBookModalDoctor] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -77,8 +76,11 @@ export default function DoctorListPage({ auth }) {
     return [...new Set(doctors.map((doctor) => doctor.specialization).filter(Boolean))].sort();
   }, [doctors]);
 
+  const currentDoctor = useMemo(() => resolveCurrentDoctor(doctors).doctor, [doctors]);
+  const currentDoctorId = String(currentDoctor?._id || currentDoctor?.id || '');
+
   const filteredDoctors = useMemo(() => {
-    return doctors.filter((doctor) => {
+    const list = doctors.filter((doctor) => {
       const doctorText = `${doctor.name || ''} ${doctor.specialization || ''} ${doctor.hospitalOrClinic || ''}`.toLowerCase();
       const nextSlot = getNextAvailableSlot(doctor);
 
@@ -96,10 +98,35 @@ export default function DoctorListPage({ auth }) {
 
       return true;
     });
-  }, [doctors, onlyAvailable, query, specialization]);
+
+    if (!isPatientView) {
+      return list;
+    }
+
+    return [...list].sort((left, right) => {
+      const ratingDiff = Number(right.ratingAverage || 0) - Number(left.ratingAverage || 0);
+      if (ratingDiff !== 0) return ratingDiff;
+
+      const reviewDiff = Number(right.ratingCount || 0) - Number(left.ratingCount || 0);
+      if (reviewDiff !== 0) return reviewDiff;
+
+      const expDiff = Number(right.experience || 0) - Number(left.experience || 0);
+      if (expDiff !== 0) return expDiff;
+
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    });
+  }, [doctors, isPatientView, onlyAvailable, query, specialization]);
 
   return (
     <div className="space-y-6 animate-fade-up">
+      {isPatientView ? (
+        <FindDoctorBookModal
+          auth={auth}
+          doctor={bookModalDoctor}
+          open={Boolean(bookModalDoctor)}
+          onClose={() => setBookModalDoctor(null)}
+        />
+      ) : null}
       <section className="panel p-6">
         <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">
           {isPatientView ? 'Find a doctor' : 'Doctor directory'}
@@ -176,7 +203,15 @@ export default function DoctorListPage({ auth }) {
                 </div>
 
                 <div className="mt-4 grid gap-2 text-sm text-slate-700">
-                  <p><strong>Rating:</strong> {formatRating(doctor)}</p>
+                  <p className="flex flex-wrap items-center gap-2">
+                    <strong className="shrink-0">Rating:</strong>
+                    <StarRating
+                      value={doctor.ratingAverage}
+                      size="sm"
+                      showValue
+                      reviewCount={doctor.ratingCount}
+                    />
+                  </p>
                   <p><strong>Next availability:</strong> {nextAvailable}</p>
                   <p><strong>Qualifications:</strong> {doctor.qualifications || 'Not specified'}</p>
                 </div>
@@ -184,9 +219,19 @@ export default function DoctorListPage({ auth }) {
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Link className="button-secondary" to={`/doctors/${doctorId}`}>View profile</Link>
                   {isPatientView ? (
-                    <Link className="button-primary" to={`/patient/appointments/book?doctorId=${doctorId}`}>Book appointment</Link>
+                    <button
+                      type="button"
+                      className="button-primary"
+                      onClick={() => setBookModalDoctor(doctor)}
+                    >
+                      Book appointment
+                    </button>
                   ) : (
-                    <Link className="button-primary" to={`/doctors/${doctorId}`}>Manage availability</Link>
+                    String(doctorId) === currentDoctorId ? (
+                      <Link className="button-primary" to={`/doctors/${doctorId}`}>Manage availability</Link>
+                    ) : (
+                      <Link className="button-secondary" to={`/doctors/${doctorId}`}>View availability</Link>
+                    )
                   )}
                 </div>
               </article>

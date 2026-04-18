@@ -1,124 +1,139 @@
 import React from 'react';
-import featureAppointments from '../../assets/images/feature-appointments.jpg';
+import ScrollReveal from './ScrollReveal';
 import featureDoctors from '../../assets/images/feature-doctors.jpg';
-import featureTelemedicine from '../../assets/images/feature-telemedicine.jpg';
 import featureSymptomChecker from '../../assets/images/feature-symptom-checker.jpg';
 import featureInsights from '../../assets/images/feature-insights.jpg';
+import landingContactlessPayment from '../../assets/images/landing-contactless-payment.png';
+import landingOnlinePayment from '../../assets/images/landing-online-payment.png';
+import landingVideoConsultation from '../../assets/images/landing-video-consultation.png';
+import {
+  IconCalendar,
+  IconChartRecords,
+  IconDashboard,
+  IconSearchHealth,
+  IconUsersDoctors,
+  IconVideo
+} from './landingIcons';
 
 const features = [
   {
-    icon: '🏥',
+    Icon: IconUsersDoctors,
     title: 'Find & Book Doctors',
     description: 'Discover top-rated doctors in your area. Check availability and book appointments instantly without waiting.',
-    image: featureDoctors,
-    fromColor: '#eff6ff',
-    toColor: '#cffafe'
+    image: featureDoctors
   },
   {
-    icon: '💬',
+    Icon: IconVideo,
     title: 'Video Consultations',
     description: 'Connect with doctors via secure video calls from home. Perfect for follow-ups and non-emergency care.',
-    image: featureTelemedicine,
-    fromColor: '#faf5ff',
-    toColor: '#fce7f3'
+    image: landingVideoConsultation
   },
   {
-    icon: '🔍',
+    Icon: IconSearchHealth,
     title: 'Symptom Checker',
     description: 'Describe your symptoms and get AI-powered health insights. Helps you understand when to see a doctor.',
-    image: featureSymptomChecker,
-    fromColor: '#fffbeb',
-    toColor: '#fed7aa'
+    image: featureSymptomChecker
   },
   {
-    icon: '📊',
+    Icon: IconChartRecords,
     title: 'Health Records',
     description: 'Access all your medical records, test results, and prescriptions in one secure place. Always at your fingertips.',
-    image: featureInsights,
-    fromColor: '#f0fdf4',
-    toColor: '#d1fae5'
+    image: featureInsights
   },
   {
-    icon: '📋',
+    Icon: IconCalendar,
     title: 'Appointment Management',
     description: 'Manage all your appointments in one place. Get reminders, reschedule, and track your health timeline.',
-    image: featureAppointments,
-    fromColor: '#ffe4e6',
-    toColor: '#fecaca'
+    image: landingContactlessPayment
   },
   {
-    icon: '👨‍⚕️',
+    Icon: IconDashboard,
     title: 'Personal Health Dashboard',
     description: 'Get personalized health insights, track your wellness goals, and receive recommendations tailored to you.',
-    image: featureInsights,
-    fromColor: '#eef2ff',
-    toColor: '#dbeafe'
+    image: landingOnlinePayment
   }
 ];
 
+const innerRevealStyle = (step) => ({
+  animationDelay: `${step * 0.12}s`,
+  '--landing-reveal-inner-ms': '1180ms'
+});
+
 export default function FeaturesSection() {
   return (
-    <section id="features" className="w-full py-24 md:py-32">
-      <div className="max-w-6xl mx-auto px-6 md:px-8 lg:px-12">
-        {/* Section Header */}
-        <div className="text-center mb-20">
-          <h2 className="mb-6 text-4xl font-black text-slate-900 md:text-5xl">
+    <section
+      id="features"
+      className="w-full border-t border-slate-200/80 bg-slate-50/60 pt-24 pb-14 md:pt-32 md:pb-16"
+    >
+      <div className="mx-auto max-w-6xl px-6 md:px-8 lg:px-12">
+        <ScrollReveal className="mb-16 text-center md:mb-20">
+          <h2 className="mb-6 font-sans text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
             Everything You Need for Better Health
           </h2>
-          <p className="mx-auto max-w-3xl text-xl leading-relaxed text-slate-600">
+          <p className="mx-auto max-w-3xl text-base font-normal leading-relaxed text-slate-600 md:text-lg">
             From finding the right doctor to managing your health records, PrimeHealth provides all the tools you need in one intuitive platform.
           </p>
-        </div>
+        </ScrollReveal>
 
         {/* Features Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              className="panel group cursor-pointer rounded-3xl border-none bg-gradient-to-br p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
-              style={{
-                backgroundImage: `linear-gradient(to bottom right, ${feature.fromColor}, ${feature.toColor})`
-              }}
-            >
-              {/* Icon */}
-              <div className="text-5xl mb-4 inline-block transform group-hover:scale-110 transition-transform duration-300">
-                {feature.icon}
-              </div>
-              <img
-                src={feature.image}
-                alt={feature.title}
-                className="mb-5 h-40 w-full rounded-2xl object-cover shadow-sm"
-                loading="lazy"
-              />
+        <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+          {features.map((feature, index) => {
+            const FeatureIcon = feature.Icon;
+            return (
+              <ScrollReveal key={index} className="h-full" delayMs={index * 80} translatePx={22}>
+                <div className="group flex h-full cursor-pointer flex-col rounded-3xl border border-slate-200/90 bg-white p-8 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-sea/25 hover:shadow-lg [backdrop-filter:none]">
+                  <div
+                    className="landing-reveal-child mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-sea/10 text-sea ring-1 ring-sea/15 transition-transform duration-300 group-hover:bg-sea/15"
+                    style={innerRevealStyle(0)}
+                  >
+                    <FeatureIcon className="h-7 w-7" aria-hidden />
+                  </div>
+                  <div
+                    className="landing-reveal-child mb-5 overflow-hidden rounded-2xl ring-1 ring-slate-200/80"
+                    style={innerRevealStyle(1)}
+                  >
+                    <img
+                      src={feature.image}
+                      alt={feature.title}
+                      className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                      loading="lazy"
+                    />
+                  </div>
 
-              {/* Content */}
-              <h3 className="mb-3 text-2xl font-black text-slate-900">
-                {feature.title}
-              </h3>
-              <p className="leading-relaxed text-slate-700">
-                {feature.description}
-              </p>
+                  <h3
+                    className="landing-reveal-child mb-3 font-sans text-lg font-bold text-slate-900 md:text-xl"
+                    style={innerRevealStyle(2)}
+                  >
+                    {feature.title}
+                  </h3>
+                  <p
+                    className="landing-reveal-child grow text-sm leading-relaxed text-slate-600 md:text-[0.95rem]"
+                    style={innerRevealStyle(3)}
+                  >
+                    {feature.description}
+                  </p>
 
-              {/* Arrow indicator */}
-              <div className="flex items-center gap-2 mt-4 text-sea font-semibold opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <span>Learn more</span>
-                <svg className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-            </div>
-          ))}
+                  <div className="mt-5 flex items-center gap-2 font-semibold text-sea opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                    <span>Learn more</span>
+                    <svg className="h-4 w-4 transform transition-transform group-hover:translate-x-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+              </ScrollReveal>
+            );
+          })}
         </div>
 
         {/* Bottom CTA */}
-        <div className="mt-20 text-center">
-          <p className="mb-6 text-lg text-slate-600">
+        <ScrollReveal className="mt-14 text-center md:mt-16" delayMs={120}>
+          <p className="mb-6 text-base text-slate-600">
             Curious about any specific feature?
           </p>
           <button className="button-secondary px-8 py-3">
             Explore Full Feature List
           </button>
-        </div>
+        </ScrollReveal>
       </div>
     </section>
   );

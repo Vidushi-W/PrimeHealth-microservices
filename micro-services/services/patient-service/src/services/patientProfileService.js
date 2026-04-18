@@ -907,6 +907,54 @@ async function getPatientSummaryForDoctor(patientId) {
   };
 }
 
+async function uploadMyPatientProfilePicture(userId, relativePath) {
+  const user = await User.findById(userId);
+  if (!user) {
+    return {
+      status: 404,
+      body: { message: "User not found" },
+    };
+  }
+
+  const profile = await getPrimaryProfile(userId);
+  if (!profile) {
+    return {
+      status: 404,
+      body: { message: "Patient profile not found" },
+    };
+  }
+
+  const previous = profile.profilePhoto || "";
+  if (previous.startsWith("/uploads/patient-profiles/")) {
+    const relative = previous.replace(/^\//, "");
+    const absoluteFilePath = path.join(__dirname, "..", "..", relative);
+    if (fs.existsSync(absoluteFilePath)) {
+      try {
+        fs.unlinkSync(absoluteFilePath);
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  }
+
+  await PatientProfile.findByIdAndUpdate(
+    profile._id,
+    { profilePhoto: relativePath },
+    { new: true, runValidators: true },
+  );
+
+  const updatedUser = await User.findById(userId);
+  const updatedProfile = await getPrimaryProfile(userId);
+
+  return {
+    status: 200,
+    body: {
+      message: "Profile picture updated successfully",
+      ...buildProfileResponse(updatedUser, updatedProfile),
+    },
+  };
+}
+
 async function updateMyPatientProfile(userId, payload) {
   const user = await User.findById(userId);
   if (!user) {
@@ -996,5 +1044,6 @@ module.exports = {
   getPatientSummaryForDoctor,
   listMyPatientReports,
   uploadPatientReport,
+  uploadMyPatientProfilePicture,
   updateMyPatientProfile,
 };
