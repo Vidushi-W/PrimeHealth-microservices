@@ -407,10 +407,11 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 | Team member | Primary ownership |
 |-------------|-------------------|
-| **Sinali** | Patient module + AI symptom checker |
-| **Vidushi** | Doctor module + prescription management |
-| **Sithmi** | Appointment + payment module |
-| **Geethma** | Telemedicine module + analytics / admin service |
+
+| **J.V.S.Weerasinghe** | Doctor module + prescription management |
+| **M.A.T.S.Meewalaarachchi** | Patient module + AI symptom checker |
+| **H.G.S.Dias** | Telemedicine module + analytics / admin service |
+| **W.D.S.G.S.Sasanka** | Appointment + payment module |
 
 Fine-grained contributions: see **Git history** and branches.
 
