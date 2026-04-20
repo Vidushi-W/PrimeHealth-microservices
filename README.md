@@ -19,7 +19,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 ## Key Features
 
-### 1. Patient module + AI symptom checker
+### 1. Patient Service + AI symptom checker
 
 - Register / login (**JWT**)
 - Profile and **multi-profile (family)** support
@@ -27,7 +27,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 - **Symptom check** and **risk score** APIs (implemented in **patient-service**)
 - **Reminder** CRUD and “upcoming” listing
 
-### 2. Doctor module + prescription management
+### 2. Doctor service + prescription Service
 
 - Doctor registration, profile updates, **profile photo** upload
 - **Availability** and slot management (add, update, delete slots)
@@ -37,7 +37,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 > **Roadmap / partial:** features such as **voice-to-prescription** or advanced “smart scheduling” may be **planned or partially implemented**—verify in the UI and service routes for your demo revision.
 
-### 3. Appointment + payment module
+### 3. Appointment Service + payment Service
 
 - Create, list, filter, and **cancel** appointments; status updates for doctors/admins
 - **Payment initiation** (PayHere), **confirm**, **history**, **invoice** download where applicable
@@ -46,7 +46,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 > **Roadmap:** “AI-based doctor recommendation” and “rescheduling intelligence” may appear as **UI or future logic**—confirm against `appointment-service` and frontend for the branch you evaluate.
 
-### 4. Telemedicine module + analytics / admin
+### 4. Telemedicine Service + analytics and admin Service
 
 - **Video** consultation via **Jitsi** (`external_api.js`); **session chat** REST APIs
 - Session lifecycle: create, list, join, start, end, cancel; **video token** for embedded meet
@@ -77,7 +77,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 ---
 
-## Microservices / Modules
+## Microservices
 
 | Service | Folder | Responsibility |
 |--------|--------|------------------|
