@@ -11,7 +11,6 @@ import {
   fetchPaymentById,
   fetchPaymentByOrderId,
   fetchTelemedicineSessions,
-  getConfiguredPaymentProvider,
   initiatePaymentFlow,
   startStripeCheckout
 } from '../services/platformApi';
@@ -442,7 +441,7 @@ export default function AppointmentHubPage({ auth }) {
         patientId,
         doctorId,
         amount,
-        provider: getConfiguredPaymentProvider(),
+        provider: 'STRIPE',
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -462,9 +461,7 @@ export default function AppointmentHubPage({ auth }) {
         toast.success('Stripe checkout started. Return to this page after payment and your appointment list will refresh.');
         return;
       }
-
-      await loadAppointments();
-      toast.success('Test payment completed. Your appointment is updated below.');
+      throw new Error('Stripe checkout is unavailable. Please confirm payment-service PAYMENT_PROVIDER=STRIPE.');
     } catch (error) {
       const serverMessage = error?.response?.data?.message || error?.response?.data?.error;
       toast.error(serverMessage || error.message || 'Unable to complete payment');

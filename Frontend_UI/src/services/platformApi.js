@@ -253,7 +253,7 @@ export async function initiatePayment(authOrToken, payload) {
  * `STRIPE`: hosted Stripe Checkout session.
  */
 export function getConfiguredPaymentProvider() {
-  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'SIMULATED').trim().toUpperCase();
+  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'STRIPE').trim().toUpperCase();
   return v === 'STRIPE' ? 'STRIPE' : 'SIMULATED';
 }
 
@@ -266,6 +266,10 @@ export async function initiatePaymentFlow(authOrToken, payload) {
 
   if (initiated?.checkout?.gateway === 'STRIPE') {
     return { kind: 'stripe', initiated };
+  }
+
+  if (provider === 'STRIPE') {
+    throw new Error('Stripe payment provider is configured, but checkout session was not returned.');
   }
 
   const orderId = initiated?.orderId;

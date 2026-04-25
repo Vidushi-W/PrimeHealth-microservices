@@ -6,7 +6,6 @@ import {
   downloadPaymentInvoice,
   fetchPaymentById,
   fetchPaymentByOrderId,
-  getConfiguredPaymentProvider,
   initiatePaymentFlow,
   startStripeCheckout
 } from '../services/platformApi';
@@ -496,7 +495,7 @@ function BookAppointmentPage({ auth }) {
         patientId,
         doctorId,
         amount,
-        provider: getConfiguredPaymentProvider(),
+        provider: 'STRIPE',
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -520,12 +519,7 @@ function BookAppointmentPage({ auth }) {
         );
         return;
       }
-
-      setPaymentOrderId(flow.initiated.orderId);
-      setPaymentRecord(flow.confirmed || null);
-      setPaymentState('paid');
-      setSuccess('Test payment completed (local simulated gateway). Your appointment is confirmed.');
-      toast.success('Local test payment succeeded.');
+      throw new Error('Stripe checkout is unavailable. Please confirm payment-service PAYMENT_PROVIDER=STRIPE.');
     } catch (requestError) {
       setPaymentState('failed');
       const serverMessage = requestError?.response?.data?.message || requestError?.response?.data?.error;

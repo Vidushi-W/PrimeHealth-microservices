@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import StarRating from './StarRating';
 import { API_BASE_DOCTOR } from '../config/apiBase';
 import { createAppointment, getDoctorSlots } from '../services/patientApi';
-import { getConfiguredPaymentProvider, initiatePaymentFlow, startStripeCheckout } from '../services/platformApi';
+import { initiatePaymentFlow, startStripeCheckout } from '../services/platformApi';
 
 /** Matches payment-service `body('appointmentId').isMongoId()` and avoids a bad central sync id. */
 function isMongoId(value) {
@@ -135,12 +135,7 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
 
   if (!open || !doctor) return null;
 
-  /**
-   * @param {string} paymentProvider - PAYHERE | SIMULATED
-   * @param {{ devShortcut?: boolean }} [options] - set devShortcut when using the temporary dev button
-   */
-  const runBookAndPayment = async (paymentProvider, options = {}) => {
-    const { devShortcut = false } = options;
+  const runBookAndPayment = async () => {
     if (!doctorId) {
       toast.error('Invalid doctor');
       return;
@@ -190,7 +185,7 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
         patientId,
         doctorId,
         amount,
-        provider: paymentProvider,
+        provider: 'STRIPE',
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -214,12 +209,7 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
         return;
       }
 
-      onClose();
-      toast.success(
-        devShortcut
-          ? 'Dev shortcut: booking marked paid (simulated). Open Appointments for telemedicine testing.'
-          : 'Test payment completed (local simulated gateway). Open Appointments — your booking should appear under Active (paid).',
-      );
+      throw new Error('Stripe checkout is unavailable. Please confirm payment-service PAYMENT_PROVIDER=STRIPE.');
     } catch (e) {
       toast.error(formatApiError(e) || 'Booking or payment failed');
     } finally {
@@ -230,7 +220,7 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
 
   const handleBookAndPay = (event) => {
     event.preventDefault();
-    runBookAndPayment(getConfiguredPaymentProvider(), { devShortcut: false });
+    runBookAndPayment();
   };
 
   return (
@@ -316,9 +306,7 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
                 : `${DEFAULT_PAYMENT_AMOUNT_LKR} (default)`}
             </strong>
             .{' '}
-            {getConfiguredPaymentProvider() === 'STRIPE'
-              ? 'You complete checkout on Stripe; your booking is updated when you return.'
-              : 'Local test payment runs in one step. Your booking is marked paid immediately for development.'}
+            {'You complete checkout on Stripe; your booking is updated when you return.'}
           </p>
 
           <div className="flex flex-wrap items-center gap-2 pt-2">
