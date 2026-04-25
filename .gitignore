@@ -124,5 +124,9 @@ venv/
 playwright-report/
 test-results/
 
+# Stripe local tooling artifacts
+.stripe/
+stripe-debug.log
+
 # Repo-local generated files not needed in commits
 /.env.example

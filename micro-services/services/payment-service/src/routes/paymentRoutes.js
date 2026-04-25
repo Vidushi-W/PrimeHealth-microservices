@@ -6,8 +6,6 @@ const { parseAuthHeaders, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.post('/payhere/notify', paymentController.handlePayHereNotify);
-
 router.use(parseAuthHeaders);
 
 /**
@@ -91,6 +89,15 @@ router.post(
   ],
   validate,
   paymentController.confirmPayment
+);
+
+router.post(
+  '/stripe/confirm',
+  [
+    body('sessionId').notEmpty().withMessage('Stripe sessionId is required')
+  ],
+  validate,
+  paymentController.confirmStripeSession
 );
 
 /**

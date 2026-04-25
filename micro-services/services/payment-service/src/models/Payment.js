@@ -52,7 +52,7 @@ const paymentSchema = new mongoose.Schema(
     },
     gatewayProvider: {
       type: String,
-      enum: ['SIMULATED', 'PAYHERE'],
+      enum: ['SIMULATED', 'STRIPE'],
       default: 'SIMULATED'
     },
     checkoutData: {

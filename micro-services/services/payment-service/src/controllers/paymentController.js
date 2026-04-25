@@ -18,8 +18,8 @@ class PaymentController {
 
       res.status(201).json({
         success: true,
-        message: payment?.checkout?.gateway === 'PAYHERE'
-          ? 'Payment initiated successfully. Redirect to PayHere checkout.'
+        message: payment?.checkout?.gateway === 'STRIPE'
+          ? 'Payment initiated successfully. Redirect to Stripe Checkout.'
           : 'Payment initiated successfully. Proceed to confirm.',
         data: payment
       });
@@ -28,13 +28,17 @@ class PaymentController {
     }
   }
 
-  // POST /api/payments/payhere/notify
-  async handlePayHereNotify(req, res, next) {
+  // POST /api/payments/stripe/confirm
+  async confirmStripeSession(req, res, next) {
     try {
-      await paymentService.handlePayHereNotification(req.body || {});
-      return res.status(200).send('OK');
+      const payment = await paymentService.confirmStripeSession(req.body?.sessionId);
+      res.status(200).json({
+        success: true,
+        message: 'Stripe payment status synchronized successfully',
+        data: payment
+      });
     } catch (error) {
-      return next(error);
+      next(error);
     }
   }
 

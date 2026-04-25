@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   cancelAppointment,
+  confirmStripePaymentSession,
   fetchAppointmentQueue,
   fetchAppointmentById,
   fetchDoctorById,
@@ -12,7 +13,7 @@ import {
   fetchTelemedicineSessions,
   getConfiguredPaymentProvider,
   initiatePaymentFlow,
-  submitPayHereHostedCheckout
+  startStripeCheckout
 } from '../services/platformApi';
 import { getMyAppointments as getPatientPortalAppointments } from '../services/patientApi';
 
@@ -221,6 +222,7 @@ export default function AppointmentHubPage({ auth }) {
   const [viewFilter, setViewFilter] = useState('ACTIVE_PAID');
 
   const payAppointmentId = String(searchParams.get('payAppointmentId') || '').trim();
+  const returnedSessionId = String(searchParams.get('session_id') || '').trim();
   const returnedOrderId = String(searchParams.get('order_id') || searchParams.get('orderId') || '').trim();
 
   const loadAppointments = useCallback(async () => {
@@ -293,13 +295,16 @@ export default function AppointmentHubPage({ auth }) {
   }, [payAppointmentId, visibleAppointments, loading]);
 
   useEffect(() => {
-    if (!returnedOrderId) {
+    if (!returnedOrderId && !returnedSessionId) {
       return;
     }
 
     let mounted = true;
     const syncReturnedOrder = async () => {
       try {
+        if (returnedSessionId) {
+          await confirmStripePaymentSession(auth, returnedSessionId);
+        }
         const byOrder = await fetchPaymentByOrderId(auth, returnedOrderId);
         if (!mounted || !byOrder) {
           return;
@@ -330,6 +335,7 @@ export default function AppointmentHubPage({ auth }) {
               const next = new URLSearchParams(prev);
               next.delete('order_id');
               next.delete('orderId');
+              next.delete('session_id');
               return next;
             },
             { replace: true }
@@ -345,7 +351,7 @@ export default function AppointmentHubPage({ auth }) {
     return () => {
       mounted = false;
     };
-  }, [returnedOrderId, auth, loadAppointments, setSearchParams]);
+  }, [returnedOrderId, returnedSessionId, auth, loadAppointments, setSearchParams]);
 
   const upcomingCount = useMemo(
     () =>
@@ -451,9 +457,9 @@ export default function AppointmentHubPage({ auth }) {
         cancelUrl: `${window.location.origin}/appointments`
       });
 
-      if (flow.kind === 'payhere') {
-        submitPayHereHostedCheckout(flow.initiated.checkout);
-        toast.success('PayHere checkout opened separately. When you return to this page, your list will refresh after payment.');
+      if (flow.kind === 'stripe') {
+        startStripeCheckout(flow.initiated.checkout);
+        toast.success('Stripe checkout started. Return to this page after payment and your appointment list will refresh.');
         return;
       }
 

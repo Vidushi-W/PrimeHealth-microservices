@@ -249,23 +249,23 @@ export async function initiatePayment(authOrToken, payload) {
 }
 
 /**
- * `SIMULATED` (default): no PayHere — server creates a pending payment then `/confirm` marks it paid.
- * `PAYHERE`: returns hosted checkout; caller must POST the form to PayHere.
+ * `SIMULATED` (default): local test payment.
+ * `STRIPE`: hosted Stripe Checkout session.
  */
 export function getConfiguredPaymentProvider() {
   const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'SIMULATED').trim().toUpperCase();
-  return v === 'PAYHERE' ? 'PAYHERE' : 'SIMULATED';
+  return v === 'STRIPE' ? 'STRIPE' : 'SIMULATED';
 }
 
 /**
- * @returns {Promise<{ kind: 'payhere', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
+ * @returns {Promise<{ kind: 'stripe', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
  */
 export async function initiatePaymentFlow(authOrToken, payload) {
   const provider = payload.provider || getConfiguredPaymentProvider();
   const initiated = await initiatePayment(authOrToken, { ...payload, provider });
 
-  if (initiated?.checkout?.gateway === 'PAYHERE') {
-    return { kind: 'payhere', initiated };
+  if (initiated?.checkout?.gateway === 'STRIPE') {
+    return { kind: 'stripe', initiated };
   }
 
   const orderId = initiated?.orderId;
@@ -300,24 +300,33 @@ export function submitHostedCheckout(checkout, target = '_self') {
   document.body.removeChild(form);
 }
 
-/**
- * PayHere hosted checkout lives on PayHere’s domain (sandbox or live), not inside the SPA.
- * Default `_blank` opens it in a new tab so payment is clearly separate from PrimeHealth.
- * Set `VITE_PAYHERE_CHECKOUT_TARGET=_self` in `.env.local` to use the same tab instead.
- */
-export function getPayHereCheckoutTarget() {
-  const raw = String(import.meta.env.VITE_PAYHERE_CHECKOUT_TARGET || '_blank').trim();
-  return raw === '_self' || raw === '_blank' ? raw : '_blank';
-}
-
-export function submitPayHereHostedCheckout(checkout) {
-  submitHostedCheckout(checkout, getPayHereCheckoutTarget());
+export function startStripeCheckout(checkout) {
+  const url = String(checkout?.url || '').trim();
+  if (!url) {
+    throw new Error('Stripe checkout URL is missing.');
+  }
+  window.location.assign(url);
 }
 
 export async function confirmPayment(authOrToken, orderId) {
   const response = await paymentApi.post(
     '/api/payments/confirm',
     { orderId },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+
+  return unwrap(response);
+}
+
+export async function confirmStripePaymentSession(authOrToken, sessionId) {
+  const response = await paymentApi.post(
+    '/api/payments/stripe/confirm',
+    { sessionId },
     {
       headers: {
         'Content-Type': 'application/json',

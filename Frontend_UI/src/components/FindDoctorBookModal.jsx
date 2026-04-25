@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import StarRating from './StarRating';
 import { API_BASE_DOCTOR } from '../config/apiBase';
 import { createAppointment, getDoctorSlots } from '../services/patientApi';
-import { getConfiguredPaymentProvider, initiatePaymentFlow, submitPayHereHostedCheckout } from '../services/platformApi';
+import { getConfiguredPaymentProvider, initiatePaymentFlow, startStripeCheckout } from '../services/platformApi';
 
 /** Matches payment-service `body('appointmentId').isMongoId()` and avoids a bad central sync id. */
 function isMongoId(value) {
@@ -205,11 +205,11 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
         cancelUrl: `${window.location.origin}/appointments`,
       });
 
-      if (flow.kind === 'payhere') {
-        submitPayHereHostedCheckout(flow.initiated.checkout);
+      if (flow.kind === 'stripe') {
+        startStripeCheckout(flow.initiated.checkout);
         onClose();
         toast.success(
-          'PayHere checkout opened in a new tab (sandbox). After you pay, use Appointments — your booking will show as paid once PayHere confirms.',
+          'Stripe checkout started. Complete payment and you will return to Appointments with the booking updated.',
         );
         return;
       }
@@ -231,12 +231,6 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
   const handleBookAndPay = (event) => {
     event.preventDefault();
     runBookAndPayment(getConfiguredPaymentProvider(), { devShortcut: false });
-  };
-
-  // TODO(dev): remove before production — only rendered when running `vite` (not in production build).
-  const handleDevMarkPaid = (event) => {
-    event.preventDefault();
-    runBookAndPayment('SIMULATED', { devShortcut: true });
   };
 
   return (
@@ -322,29 +316,18 @@ export default function FindDoctorBookModal({ auth, doctor, open, onClose }) {
                 : `${DEFAULT_PAYMENT_AMOUNT_LKR} (default)`}
             </strong>
             .{' '}
-            {getConfiguredPaymentProvider() === 'PAYHERE'
-              ? 'You complete checkout on PayHere; your booking shows as paid after PayHere confirms.'
-              : 'Local test payment runs in one step (no PayHere). Your booking is marked paid immediately for development.'}
+            {getConfiguredPaymentProvider() === 'STRIPE'
+              ? 'You complete checkout on Stripe; your booking is updated when you return.'
+              : 'Local test payment runs in one step. Your booking is marked paid immediately for development.'}
           </p>
 
           <div className="flex flex-wrap items-center gap-2 pt-2">
             <button type="button" className="button-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="button-primary" disabled={submitting || paying || !timeSlot}>
+            <button type="submit" className="button-primary" disabled={submitting || paying}>
               {submitting || paying ? 'Processing…' : 'Book & pay now'}
             </button>
-            {import.meta.env.DEV ? (
-              <button
-                type="button"
-                className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                disabled={submitting || paying || !timeSlot}
-                title="Temporary: completes booking with simulated payment (no PayHere). Remove FindDoctorBookModal dev shortcut before release."
-                onClick={handleDevMarkPaid}
-              >
-                Dev: mark paid (skip PayHere)
-              </button>
-            ) : null}
           </div>
         </form>
       </div>
