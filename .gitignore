@@ -128,5 +128,3 @@ test-results/
 .stripe/
 stripe-debug.log
 
-# Repo-local generated files not needed in commits
-/.env.example
