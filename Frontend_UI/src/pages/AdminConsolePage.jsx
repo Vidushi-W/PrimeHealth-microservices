@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
 import { API_BASE_ADMIN } from '../config/apiBase';
 import {
-  fetchAdminAppointments,
+  fetchAdminAppointmentsPage,
   fetchAdminAnalyticsSummary,
   fetchAdminAppointmentAnalytics,
   fetchAdminDoctors,
@@ -15,6 +15,26 @@ import {
 } from '../services/platformApi';
 
 const healthChecks = [`${API_BASE_ADMIN.replace(/\/+$/, '')}/health`];
+const PLATFORM_COMMISSION_RATE = 0.10;
+const FLAT_CONSULTATION_FEE_LKR = 2500;
+
+function isSuccessfulTransaction(status) {
+  return ['SUCCESS', 'PAID', 'COMPLETED'].includes(String(status || '').toUpperCase());
+}
+
+function formatLkr(value) {
+  return `LKR ${Number(value || 0).toLocaleString()}`;
+}
+
+function resolvePaidAppointmentAmount(appointment) {
+  const amount = Number(
+    appointment?.consultationFee
+    || appointment?.fee
+    || appointment?.amount
+    || FLAT_CONSULTATION_FEE_LKR
+  );
+  return amount > 0 ? amount : FLAT_CONSULTATION_FEE_LKR;
+}
 
 export default function AdminConsolePage({ auth }) {
   const [tab, setTab] = useState('dashboard');
@@ -30,7 +50,6 @@ export default function AdminConsolePage({ auth }) {
   const [healthyServices, setHealthyServices] = useState(0);
   const [doctorSearch, setDoctorSearch] = useState('');
   const [patientSearch, setPatientSearch] = useState('');
-  const [transactionSearch, setTransactionSearch] = useState('');
   const location = useLocation();
 
   useEffect(() => {
@@ -58,9 +77,35 @@ export default function AdminConsolePage({ auth }) {
     return results.filter(Boolean).length;
   }, []);
 
-  const loadAdminData = useCallback(async () => {
+  const fetchAllAdminAppointments = useCallback(async () => {
+    const limit = 200;
+    const firstPage = await fetchAdminAppointmentsPage(auth.token, { page: 1, limit });
+    const firstAppointments = Array.isArray(firstPage?.appointments) ? firstPage.appointments : [];
+    const totalPages = Math.max(1, Number(firstPage?.totalPages || 1));
+
+    if (totalPages <= 1) {
+      return firstAppointments;
+    }
+
+    const remainingPages = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, index) =>
+        fetchAdminAppointmentsPage(auth.token, { page: index + 2, limit })
+      )
+    );
+
+    return [
+      ...firstAppointments,
+      ...remainingPages.flatMap((pageResult) =>
+        Array.isArray(pageResult?.appointments) ? pageResult.appointments : []
+      )
+    ];
+  }, [auth.token]);
+
+  const loadAdminData = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
 
       const [adminSummary, adminDoctors, adminPatients, analytics, txList, healthCount, appointmentList] = await Promise.all([
         fetchAdminAnalyticsSummary(auth.token),
@@ -69,7 +114,7 @@ export default function AdminConsolePage({ auth }) {
         fetchAdminAppointmentAnalytics(auth.token),
         fetchAdminTransactions(auth.token),
         checkHealth(),
-        fetchAdminAppointments(auth.token, { limit: 100 })
+        fetchAllAdminAppointments()
       ]);
 
       setSummary(adminSummary || null);
@@ -83,9 +128,11 @@ export default function AdminConsolePage({ auth }) {
     } catch (requestError) {
       setError(readError(requestError, 'Unable to load admin data from Atlas-backed service'));
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  }, [auth, checkHealth]);
+  }, [auth, checkHealth, fetchAllAdminAppointments]);
 
   useEffect(() => {
     loadAdminData();
@@ -93,8 +140,8 @@ export default function AdminConsolePage({ auth }) {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      loadAdminData();
-    }, 15000);
+      loadAdminData({ silent: true });
+    }, 5000);
 
     return () => window.clearInterval(interval);
   }, [loadAdminData]);
@@ -119,35 +166,160 @@ export default function AdminConsolePage({ auth }) {
     });
   }, [patients, patientSearch]);
 
-  const todaysRevenue = useMemo(() => {
-    const now = new Date();
-    return transactions
-      .filter((item) => {
-        const date = new Date(item.createdAt || item.updatedAt);
-        return (
-          date.getFullYear() === now.getFullYear() &&
-          date.getMonth() === now.getMonth() &&
-          date.getDate() === now.getDate()
-        );
-      })
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  }, [transactions]);
-
   const paymentSuccessRate = useMemo(() => {
     if (!transactions.length) return '0%';
-    const successCount = transactions.filter((item) => ['SUCCESS', 'PAID', 'COMPLETED'].includes(String(item.status || '').toUpperCase())).length;
+    const successCount = transactions.filter((item) => isSuccessfulTransaction(item.status)).length;
     return `${Math.round((successCount / transactions.length) * 100)}%`;
   }, [transactions]);
 
-  const filteredTransactions = useMemo(() => {
-    const term = transactionSearch.trim().toLowerCase();
-    if (!term) return transactions;
+  const successfulTransactions = useMemo(
+    () => transactions.filter((item) => isSuccessfulTransaction(item.status)),
+    [transactions]
+  );
 
-    return transactions.filter((item) => {
-      const values = [item.patientId, item.patientEmail, item.status, item.amount].filter(Boolean).map(String).map((value) => value.toLowerCase());
-      return values.some((value) => value.includes(term));
+  const paidAppointmentFinanceRows = useMemo(() => {
+    const paidTransactionByAppointment = new Map();
+    successfulTransactions.forEach((tx) => {
+      const appointmentId = String(tx?.appointmentId || '').trim();
+      if (!appointmentId) return;
+      const existing = paidTransactionByAppointment.get(appointmentId);
+      const txTime = new Date(tx?.updatedAt || tx?.createdAt || Date.now()).getTime();
+      const existingTime = new Date(existing?.updatedAt || existing?.createdAt || 0).getTime();
+      if (!existing || txTime >= existingTime) {
+        paidTransactionByAppointment.set(appointmentId, tx);
+      }
     });
-  }, [transactions, transactionSearch]);
+
+    const rows = [];
+    adminAppointments.forEach((appointment) => {
+      const appointmentId = String(
+        appointment?._id
+        || appointment?.id
+        || appointment?.appointmentId
+        || ''
+      ).trim();
+      const paymentStatus = String(appointment?.paymentStatus || '').toUpperCase();
+      const hasPaidAppointmentStatus = ['PAID', 'SUCCESS', 'COMPLETED'].includes(paymentStatus);
+      const linkedSuccessfulTransaction = appointmentId ? paidTransactionByAppointment.get(appointmentId) : null;
+
+      if (!hasPaidAppointmentStatus && !linkedSuccessfulTransaction) {
+        return;
+      }
+
+      const paidAt = new Date(
+        linkedSuccessfulTransaction?.updatedAt
+        || linkedSuccessfulTransaction?.createdAt
+        || appointment?.updatedAt
+        || appointment?.createdAt
+        || appointment?.appointmentDate
+        || Date.now()
+      );
+
+      rows.push({
+        appointment,
+        appointmentId,
+        paidAt,
+        amount: resolvePaidAppointmentAmount(appointment)
+      });
+    });
+
+    return rows;
+  }, [adminAppointments, successfulTransactions]);
+
+  const paidAppointmentsCount = paidAppointmentFinanceRows.length;
+
+  const paidAppointmentsGrossFromDb = useMemo(
+    () => paidAppointmentFinanceRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [paidAppointmentFinanceRows]
+  );
+
+  const transactionGrossRealized = useMemo(
+    () => successfulTransactions.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    [successfulTransactions]
+  );
+
+  const grossRevenue = paidAppointmentsGrossFromDb;
+
+  const platformRevenue = useMemo(
+    () => grossRevenue * PLATFORM_COMMISSION_RATE,
+    [grossRevenue]
+  );
+
+  const doctorPayoutTotal = useMemo(
+    () => grossRevenue - platformRevenue,
+    [grossRevenue, platformRevenue]
+  );
+
+  const financeByMonth = useMemo(() => {
+    const monthMap = new Map();
+    paidAppointmentFinanceRows.forEach((row) => {
+      const ts = new Date(row.paidAt || Date.now());
+      const month = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}`;
+      const current = monthMap.get(month) || { month, gross: 0 };
+      current.gross += Number(row.amount || 0);
+      monthMap.set(month, current);
+    });
+
+    return [...monthMap.values()]
+      .map((row) => ({
+        ...row,
+        platform: row.gross * PLATFORM_COMMISSION_RATE,
+        doctor: row.gross * (1 - PLATFORM_COMMISSION_RATE)
+      }))
+      .sort((a, b) => (a.month < b.month ? 1 : -1))
+      .slice(0, 12);
+  }, [paidAppointmentFinanceRows]);
+
+  const financeLast12Months = useMemo(() => {
+    const monthMap = new Map(financeByMonth.map((item) => [item.month, item]));
+    const now = new Date();
+    const series = [];
+    for (let i = 11; i >= 0; i -= 1) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const row = monthMap.get(key) || { month: key, gross: 0, platform: 0, doctor: 0 };
+      series.push(row);
+    }
+    return series;
+  }, [financeByMonth]);
+
+  const financeByYear = useMemo(() => {
+    const yearMap = new Map();
+    paidAppointmentFinanceRows.forEach((row) => {
+      const ts = new Date(row.paidAt || Date.now());
+      const year = String(ts.getFullYear());
+      const current = yearMap.get(year) || { year, gross: 0, platform: 0, doctor: 0 };
+      const amount = Number(row.amount || 0);
+      current.gross += amount;
+      current.platform += amount * PLATFORM_COMMISSION_RATE;
+      current.doctor += amount * (1 - PLATFORM_COMMISSION_RATE);
+      yearMap.set(year, current);
+    });
+    return [...yearMap.values()].sort((a, b) => (a.year < b.year ? 1 : -1)).slice(0, 5);
+  }, [paidAppointmentFinanceRows]);
+
+  const thisMonthPlatformRevenue = useMemo(() => {
+    const now = new Date();
+    const key = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    const month = financeByMonth.find((item) => item.month === key);
+    return Number(month?.platform || 0);
+  }, [financeByMonth]);
+
+  const thisYearPlatformRevenue = useMemo(() => {
+    const year = String(new Date().getFullYear());
+    const row = financeByYear.find((item) => item.year === year);
+    return Number(row?.platform || 0);
+  }, [financeByYear]);
+
+  const averageCommissionPerPaidAppointment = useMemo(
+    () => (paidAppointmentsCount > 0 ? platformRevenue / paidAppointmentsCount : 0),
+    [platformRevenue, paidAppointmentsCount]
+  );
+
+  const paidCoverageRate = useMemo(
+    () => (adminAppointments.length > 0 ? (paidAppointmentsCount / adminAppointments.length) * 100 : 0),
+    [paidAppointmentsCount, adminAppointments.length]
+  );
 
   const statusCountsFromAppointments = useMemo(() => {
     if (!adminAppointments.length) return {};
@@ -176,7 +348,6 @@ export default function AdminConsolePage({ auth }) {
   const openAppointments = Number(resolvedStatusCounts?.PENDING || 0) + Number(resolvedStatusCounts?.CONFIRMED || 0);
   const totalDoctors = summary?.totalDoctors || doctors.length;
   const totalPatients = summary?.totalPatients || patients.length;
-  const totalUsers = summary?.totalUsers || totalDoctors + totalPatients;
   const statusEntries = useMemo(() => {
     const raw = Object.entries(resolvedStatusCounts || {})
       .map(([label, value]) => [label, Number(value || 0)])
@@ -271,10 +442,9 @@ export default function AdminConsolePage({ auth }) {
             </p>
           </div>
 
-          <div className="grid gap-2 rounded-2xl bg-brand-50 p-3 text-slate-900 shadow-soft sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-            <Metric label="Users" value={String(totalUsers)} />
-            <Metric label="Doctors pending" value={String(doctors.filter((doctor) => ['pending', 'inactive'].includes(String(doctor.status || '').toLowerCase())).length)} />
-            <Metric label="Daily revenue" value={`LKR ${Number(todaysRevenue || 0).toLocaleString()}`} />
+          <div className="grid gap-2 rounded-2xl bg-brand-50 p-3 text-slate-900 shadow-soft sm:grid-cols-2">
+            <Metric label="Total doctors" value={String(totalDoctors)} />
+            <Metric label="Total patients" value={String(totalPatients)} />
           </div>
         </div>
       </section>
@@ -351,7 +521,7 @@ export default function AdminConsolePage({ auth }) {
                 </thead>
                 <tbody className="divide-y divide-brand-50 bg-white">
                   {filteredDoctors.map((doctor) => {
-                    const doctorId = doctor._id || doctor.id;
+                    const doctorId = doctor.uniqueId || doctor._id || doctor.id;
                     const status = String(doctor.status || '').toLowerCase();
                     return (
                       <tr key={doctorId} className="hover:bg-brand-50/30">
@@ -438,7 +608,7 @@ export default function AdminConsolePage({ auth }) {
                 </thead>
                 <tbody className="divide-y divide-brand-50 bg-white">
                   {filteredPatients.map((patient) => {
-                    const patientId = patient._id || patient.id;
+                    const patientId = patient.uniqueId || patient._id || patient.id;
                     const isDeactivated = String(patient.status || '').toLowerCase() === 'deactivated';
                     return (
                       <tr key={patientId} className="hover:bg-brand-50/30">
@@ -489,36 +659,8 @@ export default function AdminConsolePage({ auth }) {
       ) : null}
 
       {tab === 'appointments' ? (
-        <section className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="grid gap-4">
           <div className="panel p-4">
-            <h2 className="text-xl font-black tracking-tight text-slate-900">Appointments per day</h2>
-            <div className="mt-3 space-y-2">
-              {(appointmentAnalytics?.byDay || []).slice(-14).map((item) => (
-                <div key={item.date} className="flex items-center justify-between rounded-xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-sm">
-                  <span>{item.date}</span>
-                  <strong>{item.count}</strong>
-                </div>
-              ))}
-              {!appointmentAnalytics?.byDay?.length ? <div className="text-sm text-slate-500">No daily appointment analytics yet.</div> : null}
-            </div>
-          </div>
-
-          <div className="panel p-4">
-            <h2 className="text-xl font-black tracking-tight text-slate-900">Appointment status summary</h2>
-            <div className="mt-3 space-y-2">
-              {Object.entries(appointmentAnalytics?.byStatus || {}).map(([status, count]) => (
-                <div key={status} className="rounded-xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>{status}</span>
-                    <strong>{count}</strong>
-                  </div>
-                </div>
-              ))}
-              {!Object.keys(appointmentAnalytics?.byStatus || {}).length ? <div className="text-sm text-slate-500">No appointment status data found.</div> : null}
-            </div>
-          </div>
-
-          <div className="panel p-4 lg:col-span-2">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-black tracking-tight text-slate-900">All appointments (admin view)</h2>
               <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
@@ -577,36 +719,42 @@ export default function AdminConsolePage({ auth }) {
       {tab === 'finance' ? (
         <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="panel p-4">
-            <h2 className="text-xl font-black tracking-tight text-slate-900">Financial tracking</h2>
+            <h2 className="text-xl font-black tracking-tight text-slate-900">Platform revenue model</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              PrimeHealth commission policy: admin keeps {(PLATFORM_COMMISSION_RATE * 100).toFixed(0)}% per paid appointment, doctors receive {(100 - (PLATFORM_COMMISSION_RATE * 100)).toFixed(0)}%.
+            </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <DataCard label="Revenue total" value={`LKR ${Number(summary?.revenue?.total || 0).toLocaleString()}`} />
-              <DataCard label="Revenue currency" value={summary?.revenue?.currency || 'LKR'} />
+              <DataCard label="Gross paid revenue" value={formatLkr(grossRevenue)} />
+              <DataCard label="Platform revenue (10%)" value={formatLkr(platformRevenue)} />
+              <DataCard label="Doctor payouts (90%)" value={formatLkr(doctorPayoutTotal)} />
+              <DataCard label="This month commission" value={formatLkr(thisMonthPlatformRevenue)} />
+              <DataCard label="This year commission" value={formatLkr(thisYearPlatformRevenue)} />
+              <DataCard label="Paid appointments" value={String(paidAppointmentsCount)} />
+              <DataCard label="Appointment DB gross (paid)" value={formatLkr(paidAppointmentsGrossFromDb)} />
+              <DataCard label="Transaction gross (realized)" value={formatLkr(transactionGrossRealized)} />
+              <DataCard label="Paid coverage rate" value={`${paidCoverageRate.toFixed(1)}%`} />
+              <DataCard label="Avg commission / paid appt" value={formatLkr(averageCommissionPerPaidAppointment)} />
               <DataCard label="Payment success" value={paymentSuccessRate} />
-              <DataCard label="Transactions" value={String(transactions.length)} />
             </div>
+            <p className="mt-2 text-xs text-slate-500">
+              All commission charts and gross KPIs now use appointment records from MongoDB Atlas only.
+            </p>
           </div>
 
           <div className="panel p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-xl font-black tracking-tight text-slate-900">Latest transactions</h2>
-              <input
-                className="input max-w-xs"
-                placeholder="Search transactions"
-                value={transactionSearch}
-                onChange={(event) => setTransactionSearch(event.target.value)}
-              />
-            </div>
-            <div className="mt-3 space-y-2">
-              {filteredTransactions.slice(0, 12).map((item, index) => (
-                <div key={item._id || index} className="rounded-xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>{item.patientId || item.patientEmail || 'Unknown payer'}</span>
-                    <strong>LKR {Number(item.amount || 0).toLocaleString()}</strong>
-                  </div>
-                  <p className="mt-1 text-slate-500">{item.status || 'recorded'} · {new Date(item.createdAt || Date.now()).toLocaleString()}</p>
-                </div>
-              ))}
-              {!filteredTransactions.length ? <div className="text-sm text-slate-500">No transactions available.</div> : null}
+            <h2 className="text-xl font-black tracking-tight text-slate-900">Commission analytics</h2>
+            <p className="mt-1 text-xs text-slate-500">Top-down view: 12-month trajectory and yearly platform vs doctor split.</p>
+
+            <div className="mt-3 grid gap-4">
+              <div className="rounded-xl border border-brand-100 bg-white p-3">
+                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Monthly platform commission (last 12 months)</h3>
+                <MonthlyCommissionBars rows={financeLast12Months} />
+              </div>
+
+              <div className="rounded-xl border border-brand-100 bg-white p-3">
+                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Yearly gross split (platform vs doctor)</h3>
+                <YearlySplitBars rows={financeByYear} />
+              </div>
             </div>
           </div>
         </section>
@@ -683,6 +831,57 @@ function ActionIconButton({ children, tone, label, ...props }) {
     >
       {children}
     </button>
+  );
+}
+
+function MonthlyCommissionBars({ rows }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.platform || 0)));
+  return (
+    <div className="mt-3 space-y-2">
+      {rows.map((row) => {
+        const value = Number(row.platform || 0);
+        const width = `${Math.max(2, (value / max) * 100)}%`;
+        return (
+          <div key={row.month} className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-2 text-xs">
+            <span className="text-slate-500">{row.month}</span>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-brand-500" style={{ width }} />
+            </div>
+            <span className="font-semibold text-slate-700">{formatLkr(value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function YearlySplitBars({ rows }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.gross || 0)));
+  return (
+    <div className="mt-3 space-y-2">
+      {rows.map((row) => {
+        const gross = Number(row.gross || 0);
+        const platform = Number(row.platform || 0);
+        const doctor = Number(row.doctor || 0);
+        const width = `${Math.max(2, (gross / max) * 100)}%`;
+        const platformWidth = gross > 0 ? `${(platform / gross) * 100}%` : '0%';
+        const doctorWidth = gross > 0 ? `${(doctor / gross) * 100}%` : '0%';
+        return (
+          <div key={row.year} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-700">{row.year}</span>
+              <span className="text-slate-500">Gross {formatLkr(gross)}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-slate-100" style={{ width }}>
+              <div className="h-full bg-brand-500" style={{ width: platformWidth, float: 'left' }} />
+              <div className="h-full bg-emerald-500" style={{ width: doctorWidth, float: 'left' }} />
+            </div>
+            <p className="text-[11px] text-slate-500">Platform {formatLkr(platform)} · Doctor {formatLkr(doctor)}</p>
+          </div>
+        );
+      })}
+      {!rows.length ? <p className="text-xs text-slate-500">No yearly finance data yet.</p> : null}
+    </div>
   );
 }
 

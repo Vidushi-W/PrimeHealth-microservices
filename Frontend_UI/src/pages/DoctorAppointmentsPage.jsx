@@ -72,7 +72,7 @@ function getJoinWindowState(appointment) {
   if (!start) return { canJoin: false, label: 'Schedule unavailable' };
 
   const now = new Date();
-  const opensAt = new Date(start.getTime() - (60 * 60 * 1000));
+  const opensAt = new Date(start.getTime() - (10 * 60 * 1000));
   if (now < opensAt) {
     const diffMs = opensAt.getTime() - now.getTime();
     const minutes = Math.max(1, Math.ceil(diffMs / (60 * 1000)));
@@ -252,6 +252,7 @@ export default function DoctorAppointmentsPage({ auth }) {
           const joinWindow = getJoinWindowState(item);
           const paymentStatus = normalizePaymentStatus(item.paymentStatus);
           const paymentReady = isPaidOrConfirmedAppointment(item);
+          const canonicalAppointmentId = String(item._id || item.id || item.appointmentId || item.externalAppointmentId || appointmentId).trim();
 
           return (
             <article key={appointmentId} className="panel p-5">
@@ -279,7 +280,7 @@ export default function DoctorAppointmentsPage({ auth }) {
                   </button>
                 ))}
                 {(item.mode || '').toLowerCase() === 'online' && paymentReady ? (
-                  <Link className="button-primary" to={`/telemedicine?appointmentId=${encodeURIComponent(appointmentId)}`}>Join telemedicine</Link>
+                  <Link className="button-primary" to={`/telemedicine?appointmentId=${encodeURIComponent(canonicalAppointmentId)}`}>Host telemedicine meeting</Link>
                 ) : null}
               </div>
               {(item.mode || '').toLowerCase() === 'online' ? (

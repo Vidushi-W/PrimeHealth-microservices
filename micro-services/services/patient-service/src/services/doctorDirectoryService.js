@@ -2,8 +2,8 @@ const User = require("../models/User");
 const DoctorProfile = require("../models/DoctorProfile");
 const axios = require("axios");
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MIN_BOOKABLE_SLOTS = 10;
 const SLOT_DURATION_MINUTES = 15;
+const FLAT_CONSULTATION_FEE_LKR = 2500;
 
 function normalizeValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -84,7 +84,7 @@ function buildDoctorDirectoryRecord(user, profile) {
     fullName: user.fullName,
     specialization: profile.specialization || "General Medicine",
     hospitalOrClinic: profile.hospitalOrClinic || "PrimeHealth Care Network",
-    consultationFee: profile.consultationFee || 0,
+    consultationFee: FLAT_CONSULTATION_FEE_LKR,
     profileImage: "",
     rating: null,
     supportedModes: supportedModes.length ? supportedModes : ["online", "physical"],
@@ -115,7 +115,7 @@ function mapDoctorServiceDoctor(doctor) {
     fullName: doctor.name || doctor.fullName || "Doctor",
     specialization: doctor.specialization || "General Medicine",
     hospitalOrClinic: doctor.hospitalOrClinic || "PrimeHealth Care Network",
-    consultationFee: doctor.consultationFee || 0,
+    consultationFee: FLAT_CONSULTATION_FEE_LKR,
     profileImage: doctor.profilePicture || "",
     rating: doctor.ratingAverage || null,
     supportedModes: ["online", "physical"],
@@ -262,12 +262,8 @@ async function getDoctorSlots(doctorId, dateText, mode) {
         return [];
       }
 
-      // Keep at least 10 slot options per doctor/day/mode for smoother booking UX.
-      const minimumWindowEnd = startMinutes + (MIN_BOOKABLE_SLOTS * SLOT_DURATION_MINUTES);
-      const effectiveEndMinutes = Math.max(endMinutes, minimumWindowEnd);
-
       const generatedSlots = [];
-      for (let cursor = startMinutes; cursor + SLOT_DURATION_MINUTES <= effectiveEndMinutes; cursor += SLOT_DURATION_MINUTES) {
+      for (let cursor = startMinutes; cursor + SLOT_DURATION_MINUTES <= endMinutes; cursor += SLOT_DURATION_MINUTES) {
         const slotStart = minutesToTime(cursor);
         const slotEnd = minutesToTime(cursor + SLOT_DURATION_MINUTES);
         generatedSlots.push({
@@ -287,37 +283,7 @@ async function getDoctorSlots(doctorId, dateText, mode) {
     uniqueSlots.set(slot.value, slot);
   }
 
-  const normalized = Array.from(uniqueSlots.values());
-
-  if (normalized.length >= MIN_BOOKABLE_SLOTS || normalized.length === 0) {
-    return normalized;
-  }
-
-  const lastSlot = normalized[normalized.length - 1];
-  let cursor = parseTimeToMinutes(lastSlot?.endTime || "");
-  if (cursor === null) {
-    return normalized;
-  }
-
-  while (normalized.length < MIN_BOOKABLE_SLOTS) {
-    const slotStart = minutesToTime(cursor);
-    const slotEnd = minutesToTime(cursor + SLOT_DURATION_MINUTES);
-    const value = formatSlotLabel(slotStart, slotEnd);
-    if (!uniqueSlots.has(value)) {
-      const slot = {
-        value,
-        label: value,
-        startTime: slotStart,
-        endTime: slotEnd,
-        disabled: false,
-      };
-      uniqueSlots.set(value, slot);
-      normalized.push(slot);
-    }
-    cursor += SLOT_DURATION_MINUTES;
-  }
-
-  return normalized;
+  return Array.from(uniqueSlots.values());
 }
 
 async function getDoctorBookingDetails(doctorId) {

@@ -10,8 +10,8 @@ PrimeHealth coordinates **online and in-person care** through:
 
 - **Patient-facing** registration, profiles, health artefacts (reports, timeline), **AI-assisted symptom checking**, risk scoring, reminders, and booking.
 - **Doctor-facing** profiles, **availability / scheduling**, patient insights, **prescriptions** (dedicated service), reviews, notifications, and earnings views.
-- **Appointment & payment** flows with status sync and **PayHere**-hosted checkout (sandbox configurable).
-- **Telemedicine** with **Jitsi** video and **per-session chat**, plus **admin / analytics** for platform oversight.
+- **Appointment & payment** flows with status sync and **Stripe Checkout** integration.
+- **Telemedicine** with **8x8 JaaS Jitsi** video and **per-session chat**, plus **admin / analytics** for platform oversight.
 
 Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Socket.io)** alongside REST for realtime behaviour where enabled.
 
@@ -40,7 +40,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 ### 3. Appointment + payment module
 
 - Create, list, filter, and **cancel** appointments; status updates for doctors/admins
-- **Payment initiation** (PayHere or simulated path), **confirm**, **history**, **invoice** download where applicable
+- **Payment initiation** (Stripe or simulated path), **confirm**, **history**, **invoice** download where applicable
 - **Queue** position API for patients (where exposed)
 - Internal **payment-status** sync into appointments (service token when configured)
 
@@ -48,7 +48,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 ### 4. Telemedicine module + analytics / admin
 
-- **Video** consultation via **Jitsi** (`external_api.js`); **session chat** REST APIs
+- **Video** consultation via **8x8 JaaS Jitsi** (`external_api.js`); **session chat** REST APIs
 - Session lifecycle: create, list, join, start, end, cancel; **video token** for embedded meet
 - **Admin & analytics** service: user management, doctor verification, **analytics summary**, audit / finance views (**RBAC**)
 
@@ -100,8 +100,8 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | Backend | Node.js (≥ 18), Express, Mongoose |
 | Database | MongoDB (local container or Atlas) |
 | Auth | JWT (patient, telemedicine, admin); header-based identity on some services |
-| Payments | PayHere (hosted checkout + signed notify) |
-| Video | Jitsi Meet (default `meet.jit.si`) |
+| Payments | Stripe Checkout |
+| Video | 8x8 JaaS Jitsi Meet |
 | Containers | Docker, Docker Compose |
 | Orchestration (optional) | Kubernetes (`k8s/`, `micro-services/k8s/`) |
 
@@ -150,7 +150,9 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | `ADMIN_MONGO_URI` | Mongo URI for **admin-analytics-service** (`<mongo-uri>` for admin DB) |
 | `MONGO_URI_DOCTOR`, `MONGO_URI_PATIENT`, `MONGO_URI_APPOINTMENT`, `MONGO_URI_PAYMENT`, `MONGO_URI_PRESCRIPTION`, `TELEMEDICINE_MONGO_URI` | Per-service Mongo URIs (defaults work with single Docker Mongo host) |
 | `INTERNAL_SERVICE_TOKEN` | Shared secret for internal sync routes |
-| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `PAYHERE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm, no PayHere). Set `PAYMENT_PROVIDER=PAYHERE` and sandbox credentials when ready. Guide: [docs/PAYHERE_SANDBOX.md](docs/PAYHERE_SANDBOX.md). |
+| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `STRIPE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm). Set `PAYMENT_PROVIDER=STRIPE` with Stripe keys for hosted checkout. |
+| `VIDEO_PROVIDER`, `JITSI_BASE_URL`, `JAAS_APP_ID`, `JAAS_KID`, `JAAS_PRIVATE_KEY` | Telemedicine provider settings for 8x8 JaaS Jitsi. |
+| `TELEMEDICINE_JOIN_OPEN_BEFORE_START_MINUTES`, `TELEMEDICINE_JOIN_GRACE_AFTER_END_MINUTES`, `TELEMEDICINE_DOCTOR_HOST_REQUIRED` | Telemedicine access window and doctor-host policy controls. |
 | `CORS_ORIGIN` | Allowed browser origin(s) |
 
 **Frontend** (`Frontend_UI/.env.local` — optional, not committed):
@@ -167,10 +169,8 @@ VITE_PAYMENT_API_URL=http://localhost:<payment-service-port>
 VITE_PRESCRIPTION_API_URL=http://localhost:<prescription-service-port>
 VITE_TELEMEDICINE_API_URL=http://localhost:<telemedicine-service-port>
 VITE_ADMIN_API_URL=http://localhost:<admin-service-port>
-# Match the backend: SIMULATED (default) or PAYHERE
-# VITE_PAYMENT_PROVIDER=SIMULATED
-# Optional: PayHere opens in a new tab by default (`_blank`). Use `_self` for same-tab redirect.
-# VITE_PAYHERE_CHECKOUT_TARGET=_self
+# Match the backend: SIMULATED or STRIPE
+# VITE_PAYMENT_PROVIDER=STRIPE
 ```
 
 Default ports used by the frontend code match the **full** Docker stack (see table below).
@@ -428,8 +428,8 @@ Fine-grained contributions: see **Git history** and branches.
 
 - **Port 5001 clash:** Patient container listens on **5001** internally but is mapped to **5007** on the host in the full compose file; admin uses **5001** on the host. For manual runs, set **different `PORT`** values if both run on one machine.
 - **CORS:** Set `CORS_ORIGIN` to your exact frontend origin (e.g. `http://localhost:5173`).
-- **PayHere notify:** Must be reachable from the internet for real callbacks (use **ngrok** or deploy payment service).
-- **Jitsi / camera:** Browsers often require **HTTPS** or **localhost**; allow camera/mic permissions.
+- **Stripe webhooks:** If you add webhook-based reconciliation later, expose the payment service publicly (or use Stripe CLI forwarding in dev).
+- **8x8 JaaS / camera:** Browsers often require **HTTPS** or **localhost**; allow camera/mic permissions.
 - **Secrets leaked in Git:** Rotate **JWT_SECRET**, PayHere keys, and Atlas passwords immediately.
 
 ---

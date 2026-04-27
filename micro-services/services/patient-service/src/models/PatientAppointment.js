@@ -137,7 +137,7 @@ const patientAppointmentSchema = new mongoose.Schema(
     },
     fee: {
       type: Number,
-      default: 0,
+      default: 2500,
       min: 0,
     },
     appointmentDate: {

@@ -432,7 +432,7 @@ export async function verifyDoctorAccount(token, doctorId) {
 }
 
 export async function updateDoctorAccount(token, doctorId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/doctors/${doctorId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/doctor/${doctorId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -452,7 +452,7 @@ export async function deactivateDoctorAccount(token, doctorId) {
 }
 
 export async function updatePatientAccount(token, patientId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/patients/${patientId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/patient/${patientId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -477,6 +477,28 @@ export async function fetchAdminAppointments(authOrToken, params = {}) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.appointments)) return payload.appointments;
   return [];
+}
+
+export async function fetchAdminAppointmentsPage(authOrToken, params = {}) {
+  const response = await appointmentApi.get('/api/appointments', {
+    headers: authHeaders(authOrToken),
+    params
+  });
+  const payload = unwrap(response);
+  if (Array.isArray(payload)) {
+    return {
+      appointments: payload,
+      total: payload.length,
+      page: Number(params?.page || 1),
+      totalPages: 1
+    };
+  }
+  return {
+    appointments: Array.isArray(payload?.appointments) ? payload.appointments : [],
+    total: Number(payload?.total || 0),
+    page: Number(payload?.page || params?.page || 1),
+    totalPages: Number(payload?.totalPages || 1)
+  };
 }
 
 export async function fetchAdminTransactions(token) {
