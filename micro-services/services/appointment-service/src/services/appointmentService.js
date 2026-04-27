@@ -11,6 +11,7 @@ const {
 
 const APPOINTMENT_STATUS = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 const PAYMENT_STATUS = ['UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED'];
+const FLAT_CONSULTATION_FEE_LKR = 2500;
 
 function toPlainAppointment(appointment) {
   if (!appointment) return null;
@@ -105,8 +106,7 @@ class AppointmentService {
       startTime,
       endTime,
       mode,
-      reason,
-      consultationFee
+      reason
     } = data;
     const appointmentMode = String(mode || 'online').toLowerCase() === 'physical' ? 'physical' : 'online';
 
@@ -169,7 +169,7 @@ class AppointmentService {
       endTime: endTime || startTime,
       mode: appointmentMode,
       reason,
-      consultationFee: consultationFee || 0,
+      consultationFee: FLAT_CONSULTATION_FEE_LKR,
       queueNumber,
       status: 'PENDING',
       paymentStatus: 'UNPAID'

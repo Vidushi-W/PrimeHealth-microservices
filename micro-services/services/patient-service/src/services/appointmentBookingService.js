@@ -4,6 +4,7 @@ const User = require("../models/User");
 const { getAccessibleProfile } = require("./familyProfileService");
 const { getDoctorBookingDetails, getDoctorSlots, searchDoctors } = require("./doctorDirectoryService");
 const { createCentralAppointment } = require("./appointmentServiceClient");
+const FLAT_CONSULTATION_FEE_LKR = 2500;
 
 function formatDateLabel(dateText) {
   if (!dateText) {
@@ -214,7 +215,7 @@ async function createAppointmentBooking(patientId, payload, profileId, centralPa
     doctorName: doctor.fullName,
     specialization: doctor.specialization,
     hospitalOrClinic: doctor.hospitalOrClinic,
-    fee: doctor.consultationFee || 0,
+    fee: FLAT_CONSULTATION_FEE_LKR,
     appointmentDate: payload.appointmentDate,
     timeSlot: payload.timeSlot,
     mode: payload.mode,
@@ -243,7 +244,7 @@ async function createAppointmentBooking(patientId, payload, profileId, centralPa
         endTime: selectedSlot.endTime,
         mode: payload.mode,
         reason: payload.reason || "",
-        consultationFee: Number(doctor.consultationFee || 0)
+        consultationFee: FLAT_CONSULTATION_FEE_LKR
       }
     });
 

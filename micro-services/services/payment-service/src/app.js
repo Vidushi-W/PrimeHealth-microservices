@@ -10,7 +10,7 @@ const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const requestLogger = require('./middleware/requestLogger');
 const { swaggerSpec } = require('./config/swagger');
-const { getPayHereStatus } = require('./config/payhere');
+const { getStripeStatus } = require('./config/stripe');
 
 const app = express();
 
@@ -25,7 +25,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'UP',
     service: 'payment-service',
-    payhere: getPayHereStatus()
+    stripe: getStripeStatus()
   });
 });
 

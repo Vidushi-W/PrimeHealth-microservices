@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createAppointment, getBookableDoctors, getDoctorSlots, getPatientReports } from '../services/patientApi';
 import {
+  confirmStripePaymentSession,
   downloadPaymentInvoice,
   fetchPaymentById,
   fetchPaymentByOrderId,
-  getConfiguredPaymentProvider,
   initiatePaymentFlow,
-  submitPayHereHostedCheckout
+  startStripeCheckout
 } from '../services/platformApi';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
@@ -26,7 +26,6 @@ const initialBookingForm = {
   paymentOption: 'ONLINE_AFTER',
   reason: '',
 };
-const MIN_VISIBLE_SLOTS = 10;
 
 function formatDateLabel(dateText) {
   const parsed = new Date(`${dateText}T00:00:00Z`);
@@ -136,11 +135,8 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
       return [];
     }
 
-    const minimumWindowEnd = startMinutes + (MIN_VISIBLE_SLOTS * 15);
-    const effectiveEndMinutes = Math.max(endMinutes, minimumWindowEnd);
-
     const generatedSlots = [];
-    for (let cursor = startMinutes; cursor + 15 <= effectiveEndMinutes; cursor += 15) {
+    for (let cursor = startMinutes; cursor + 15 <= endMinutes; cursor += 15) {
       const slotStart = minutesToTime(cursor);
       const slotEnd = minutesToTime(cursor + 15);
       generatedSlots.push({
@@ -152,33 +148,7 @@ function buildClientFallbackSlots(doctor, dateText, mode) {
 
     return generatedSlots;
   });
-
-  if (slots.length >= MIN_VISIBLE_SLOTS || slots.length === 0) {
-    return slots;
-  }
-
-  const deduped = new Map(slots.map((slot) => [slot.value, slot]));
-  const last = slots[slots.length - 1];
-  let cursor = parseTimeToMinutes(last?.endTime || '');
-  if (cursor === null) {
-    return slots;
-  }
-
-  while (deduped.size < MIN_VISIBLE_SLOTS) {
-    const slotStart = minutesToTime(cursor);
-    const slotEnd = minutesToTime(cursor + 15);
-    const value = formatSlotLabel(slotStart, slotEnd);
-    deduped.set(value, {
-      value,
-      label: value,
-      startTime: slotStart,
-      endTime: slotEnd,
-      disabled: false
-    });
-    cursor += 15;
-  }
-
-  return Array.from(deduped.values());
+  return slots;
 }
 
 function BookAppointmentPage({ auth }) {
@@ -222,14 +192,18 @@ function BookAppointmentPage({ auth }) {
   }, [searchParams]);
 
   useEffect(() => {
+    const returnedSessionId = searchParams.get('session_id') || '';
     const returnedOrderId = searchParams.get('order_id') || searchParams.get('orderId') || '';
-    if (!returnedOrderId) {
+    if (!returnedOrderId && !returnedSessionId) {
       return;
     }
 
     let active = true;
     const syncReturnedPayment = async () => {
       try {
+        if (returnedSessionId) {
+          await confirmStripePaymentSession(auth, returnedSessionId);
+        }
         const byOrder = await fetchPaymentByOrderId(auth, returnedOrderId);
         if (!active || !byOrder) {
           return;
@@ -521,7 +495,7 @@ function BookAppointmentPage({ auth }) {
         patientId,
         doctorId,
         amount,
-        provider: getConfiguredPaymentProvider(),
+        provider: 'STRIPE',
         method: 'CREDIT_CARD',
         customer: {
           firstName: auth?.user?.fullName || auth?.user?.name || 'PrimeHealth',
@@ -536,21 +510,16 @@ function BookAppointmentPage({ auth }) {
         cancelUrl: `${window.location.origin}/appointments`
       });
 
-      if (flow.kind === 'payhere') {
+      if (flow.kind === 'stripe') {
         setPaymentOrderId(flow.initiated.orderId);
         setPaymentState('pending');
-        submitPayHereHostedCheckout(flow.initiated.checkout);
+        startStripeCheckout(flow.initiated.checkout);
         toast.success(
-          'PayHere checkout opened in a separate tab (sandbox). After paying you will land on Appointments with your booking updated.',
+          'Stripe checkout started. Complete payment to return with an updated appointment status.',
         );
         return;
       }
-
-      setPaymentOrderId(flow.initiated.orderId);
-      setPaymentRecord(flow.confirmed || null);
-      setPaymentState('paid');
-      setSuccess('Test payment completed (local simulated gateway). Your appointment is confirmed.');
-      toast.success('Local test payment succeeded.');
+      throw new Error('Stripe checkout is unavailable. Please confirm payment-service PAYMENT_PROVIDER=STRIPE.');
     } catch (requestError) {
       setPaymentState('failed');
       const serverMessage = requestError?.response?.data?.message || requestError?.response?.data?.error;

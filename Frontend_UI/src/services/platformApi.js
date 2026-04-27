@@ -249,23 +249,27 @@ export async function initiatePayment(authOrToken, payload) {
 }
 
 /**
- * `SIMULATED` (default): no PayHere — server creates a pending payment then `/confirm` marks it paid.
- * `PAYHERE`: returns hosted checkout; caller must POST the form to PayHere.
+ * `SIMULATED` (default): local test payment.
+ * `STRIPE`: hosted Stripe Checkout session.
  */
 export function getConfiguredPaymentProvider() {
-  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'SIMULATED').trim().toUpperCase();
-  return v === 'PAYHERE' ? 'PAYHERE' : 'SIMULATED';
+  const v = String(import.meta.env.VITE_PAYMENT_PROVIDER || 'STRIPE').trim().toUpperCase();
+  return v === 'STRIPE' ? 'STRIPE' : 'SIMULATED';
 }
 
 /**
- * @returns {Promise<{ kind: 'payhere', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
+ * @returns {Promise<{ kind: 'stripe', initiated: object } | { kind: 'simulated', initiated: object, confirmed: object }>}
  */
 export async function initiatePaymentFlow(authOrToken, payload) {
   const provider = payload.provider || getConfiguredPaymentProvider();
   const initiated = await initiatePayment(authOrToken, { ...payload, provider });
 
-  if (initiated?.checkout?.gateway === 'PAYHERE') {
-    return { kind: 'payhere', initiated };
+  if (initiated?.checkout?.gateway === 'STRIPE') {
+    return { kind: 'stripe', initiated };
+  }
+
+  if (provider === 'STRIPE') {
+    throw new Error('Stripe payment provider is configured, but checkout session was not returned.');
   }
 
   const orderId = initiated?.orderId;
@@ -300,24 +304,33 @@ export function submitHostedCheckout(checkout, target = '_self') {
   document.body.removeChild(form);
 }
 
-/**
- * PayHere hosted checkout lives on PayHere’s domain (sandbox or live), not inside the SPA.
- * Default `_blank` opens it in a new tab so payment is clearly separate from PrimeHealth.
- * Set `VITE_PAYHERE_CHECKOUT_TARGET=_self` in `.env.local` to use the same tab instead.
- */
-export function getPayHereCheckoutTarget() {
-  const raw = String(import.meta.env.VITE_PAYHERE_CHECKOUT_TARGET || '_blank').trim();
-  return raw === '_self' || raw === '_blank' ? raw : '_blank';
-}
-
-export function submitPayHereHostedCheckout(checkout) {
-  submitHostedCheckout(checkout, getPayHereCheckoutTarget());
+export function startStripeCheckout(checkout) {
+  const url = String(checkout?.url || '').trim();
+  if (!url) {
+    throw new Error('Stripe checkout URL is missing.');
+  }
+  window.location.assign(url);
 }
 
 export async function confirmPayment(authOrToken, orderId) {
   const response = await paymentApi.post(
     '/api/payments/confirm',
     { orderId },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authOrToken)
+      }
+    }
+  );
+
+  return unwrap(response);
+}
+
+export async function confirmStripePaymentSession(authOrToken, sessionId) {
+  const response = await paymentApi.post(
+    '/api/payments/stripe/confirm',
+    { sessionId },
     {
       headers: {
         'Content-Type': 'application/json',
@@ -419,7 +432,7 @@ export async function verifyDoctorAccount(token, doctorId) {
 }
 
 export async function updateDoctorAccount(token, doctorId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/doctors/${doctorId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/doctor/${doctorId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -439,7 +452,7 @@ export async function deactivateDoctorAccount(token, doctorId) {
 }
 
 export async function updatePatientAccount(token, patientId, payload) {
-  const response = await adminApi.patch(`/api/admin/users/patients/${patientId}`, payload, {
+  const response = await adminApi.patch(`/api/admin/users/patient/${patientId}`, payload, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token)
@@ -464,6 +477,28 @@ export async function fetchAdminAppointments(authOrToken, params = {}) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.appointments)) return payload.appointments;
   return [];
+}
+
+export async function fetchAdminAppointmentsPage(authOrToken, params = {}) {
+  const response = await appointmentApi.get('/api/appointments', {
+    headers: authHeaders(authOrToken),
+    params
+  });
+  const payload = unwrap(response);
+  if (Array.isArray(payload)) {
+    return {
+      appointments: payload,
+      total: payload.length,
+      page: Number(params?.page || 1),
+      totalPages: 1
+    };
+  }
+  return {
+    appointments: Array.isArray(payload?.appointments) ? payload.appointments : [],
+    total: Number(payload?.total || 0),
+    page: Number(payload?.page || params?.page || 1),
+    totalPages: Number(payload?.totalPages || 1)
+  };
 }
 
 export async function fetchAdminTransactions(token) {

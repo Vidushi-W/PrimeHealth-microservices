@@ -2,41 +2,23 @@ const Payment = require('../models/Payment');
 const ApiError = require('../utils/ApiError');
 const appointmentClient = require('./appointmentClient');
 const { generateOrderId } = require('../utils/generateOrderId');
-const {
-  getPayHereCheckoutUrl,
-  resolveFrontendBase,
-  normalizeMerchantSecretForHash,
-  isPayHereSandbox
-} = require('../config/payhere');
+const { getStripeClient, resolveFrontendBase } = require('../config/stripe');
 const logger = require('../config/logger');
 const crypto = require('crypto');
-
-function normalizedAmount(value) {
-  return Number(value || 0).toFixed(2);
-}
-
-function md5(value) {
-  return crypto.createHash('md5').update(String(value), 'utf8').digest('hex');
-}
-
-function getPayHereSecretHash(secret) {
-  return md5(secret || '').toUpperCase();
-}
 
 class PaymentService {
   // ─── Initiate Payment ────────────────────────────────────
   async initiatePayment(data) {
     const { appointmentId, patientId, doctorId, amount, method, customer = {}, returnUrl, cancelUrl, provider } = data;
     const requestedProvider = String(provider || process.env.PAYMENT_PROVIDER || 'SIMULATED').toUpperCase();
-    const merchantId = String(process.env.PAYHERE_MERCHANT_ID || '').trim();
-    const merchantSecret = normalizeMerchantSecretForHash(process.env.PAYHERE_MERCHANT_SECRET || '');
-    if (requestedProvider === 'PAYHERE' && (!merchantId || !merchantSecret)) {
+    const stripe = getStripeClient();
+    if (requestedProvider === 'STRIPE' && !stripe) {
       throw new ApiError(
         503,
-        'PayHere is not configured. Set PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET from your PayHere Sandbox account (https://sandbox.payhere.lk/).'
+        'Stripe is not configured. Set STRIPE_SECRET_KEY in payment-service environment variables.'
       );
     }
-    const canUsePayHere = requestedProvider === 'PAYHERE';
+    const canUseStripe = requestedProvider === 'STRIPE';
 
     // Block duplicate paid payments
     const existingPaid = await Payment.findOne({ appointmentId, status: 'SUCCESS' });
@@ -55,77 +37,68 @@ class PaymentService {
       currency: 'LKR',
       method: method || 'CREDIT_CARD',
       status: 'PENDING',
-      gatewayProvider: canUsePayHere ? 'PAYHERE' : 'SIMULATED'
+      gatewayProvider: canUseStripe ? 'STRIPE' : 'SIMULATED'
     });
 
-    if (!canUsePayHere) {
+    if (!canUseStripe) {
       return payment;
     }
 
-    const amountString = normalizedAmount(amount);
-    const currency = 'LKR';
-    const secretHash = getPayHereSecretHash(merchantSecret);
-    const hash = md5(`${merchantId}${orderId}${amountString}${currency}${secretHash}`).toUpperCase();
-
     const appBase = resolveFrontendBase();
-    const notifyUrl = String(process.env.PAYHERE_NOTIFY_URL || '').trim();
-    const effectiveReturnUrl = returnUrl || `${appBase}/appointments`;
-    const effectiveCancelUrl = cancelUrl || effectiveReturnUrl;
-    const effectiveNotifyUrl = notifyUrl || 'http://localhost:5004/api/payments/payhere/notify';
+    const successUrlBase = returnUrl || `${appBase}/appointments`;
+    const cancelUrlBase = cancelUrl || successUrlBase;
+    const successUrl = `${successUrlBase}${successUrlBase.includes('?') ? '&' : '?'}order_id=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}`;
+    const finalCancelUrl = `${cancelUrlBase}${cancelUrlBase.includes('?') ? '&' : '?'}order_id=${encodeURIComponent(orderId)}`;
 
-    const urlsForLocalCheck = `${effectiveReturnUrl}${effectiveCancelUrl}${effectiveNotifyUrl}`;
-    const looksLikeLocal = /localhost|127\.0\.0\.1/i.test(urlsForLocalCheck);
-    if (!isPayHereSandbox() && looksLikeLocal) {
-      throw new ApiError(
-        400,
-        'PayHere live mode cannot be used with localhost/127.0.0.1 URLs. For local development set PAYHERE_USE_SANDBOX=true and use Merchant ID + Secret from https://sandbox.payhere.lk/ (not www.payhere.lk).'
-      );
+    const amountInCents = Math.round(Number(amount || 0) * 100);
+    if (!Number.isFinite(amountInCents) || amountInCents <= 0) {
+      throw new ApiError(400, 'Amount must be greater than zero.');
     }
 
-    const checkoutUrl = getPayHereCheckoutUrl();
-    logger.info('PayHere checkout', {
-      environment: isPayHereSandbox() ? 'sandbox' : 'live',
-      checkoutHost: checkoutUrl.replace(/^https?:\/\//i, '').split('/')[0]
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      success_url: successUrl,
+      cancel_url: finalCancelUrl,
+      customer_email: String(customer.email || '').trim() || undefined,
+      client_reference_id: orderId,
+      metadata: {
+        orderId: String(orderId),
+        paymentId: String(payment._id),
+        appointmentId: String(appointmentId),
+        patientId: String(patientId || ''),
+        doctorId: String(doctorId || '')
+      },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: 'lkr',
+            unit_amount: amountInCents,
+            product_data: {
+              name: `PrimeHealth appointment ${appointmentId}`
+            }
+          }
+        }
+      ]
     });
 
-    const payload = {
-      merchant_id: merchantId,
-      return_url: effectiveReturnUrl,
-      cancel_url: effectiveCancelUrl,
-      notify_url: effectiveNotifyUrl,
-      order_id: orderId,
-      items: `PrimeHealth appointment ${appointmentId}`,
-      currency,
-      amount: amountString,
-      first_name: String(customer.firstName || 'PrimeHealth').trim() || 'PrimeHealth',
-      last_name: String(customer.lastName || 'Patient').trim() || 'Patient',
-      email: String(customer.email || 'patient@primehealth.test').trim() || 'patient@primehealth.test',
-      phone: String(customer.phone || '0771234567').trim() || '0771234567',
-      address: String(customer.address || 'PrimeHealth').trim() || 'PrimeHealth',
-      city: String(customer.city || 'Colombo').trim() || 'Colombo',
-      country: String(customer.country || 'Sri Lanka').trim() || 'Sri Lanka',
-      hash,
-      custom_1: String(appointmentId),
-      custom_2: String(patientId),
-      platform: 'PrimeHealth-Web'
+    payment.checkoutData = {
+      sessionId: session.id,
+      checkoutUrl: session.url
     };
-
-    if (isPayHereSandbox()) {
-      payload.testMode = 'on';
-    }
-
-    payment.checkoutData = payload;
     await payment.save();
 
-    const gatewayUrl = checkoutUrl;
+    logger.info('Stripe checkout session created', {
+      orderId,
+      sessionId: session.id
+    });
 
     return {
       ...payment.toObject(),
       checkout: {
-        gateway: 'PAYHERE',
-        actionUrl: gatewayUrl,
-        method: 'POST',
-        fields: payload
+        gateway: 'STRIPE',
+        sessionId: session.id,
+        url: session.url
       }
     };
   }
@@ -193,46 +166,31 @@ class PaymentService {
     return payment;
   }
 
-  async handlePayHereNotification(payload) {
-    const merchantId = String(process.env.PAYHERE_MERCHANT_ID || '').trim();
-    const merchantSecret = normalizeMerchantSecretForHash(process.env.PAYHERE_MERCHANT_SECRET || '');
-    if (!merchantId || !merchantSecret) {
-      throw new ApiError(503, 'PayHere configuration missing.');
+  async confirmStripeSession(sessionId) {
+    const stripe = getStripeClient();
+    if (!stripe) {
+      throw new ApiError(503, 'Stripe is not configured.');
+    }
+    if (!sessionId) {
+      throw new ApiError(400, 'Stripe sessionId is required.');
     }
 
-    const orderId = String(payload.order_id || '').trim();
-    const statusCode = String(payload.status_code || '').trim();
-    const md5sig = String(payload.md5sig || '').trim().toUpperCase();
-    const payhereAmount = String(payload.payhere_amount || '').trim();
-    const payhereCurrency = String(payload.payhere_currency || '').trim();
-    const paymentId = String(payload.payment_id || '').trim();
-
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const orderId = String(session?.client_reference_id || session?.metadata?.orderId || '').trim();
     if (!orderId) {
-      throw new ApiError(400, 'Missing order_id in PayHere notification');
+      throw new ApiError(400, 'Stripe checkout session does not include an order reference.');
     }
 
     const payment = await Payment.findOne({ orderId });
     if (!payment) {
-      throw new ApiError(404, 'Payment not found for PayHere notification');
+      throw new ApiError(404, 'Payment not found for this Stripe session.');
     }
 
-    const localSecretHash = getPayHereSecretHash(merchantSecret);
-    const localSig = md5(`${merchantId}${orderId}${payhereAmount}${payhereCurrency}${statusCode}${localSecretHash}`).toUpperCase();
-
-    if (!md5sig || localSig !== md5sig) {
-      payment.status = 'FAILED';
-      payment.failureReason = 'Invalid PayHere signature.';
-      payment.gatewayResponse = payload;
-      await payment.save();
-      throw new ApiError(400, 'Invalid PayHere signature');
-    }
-
-    payment.gatewayResponse = payload;
-
-    if (statusCode === '2') {
+    payment.gatewayResponse = session;
+    if (session.payment_status === 'paid') {
       if (payment.status !== 'SUCCESS') {
         payment.status = 'SUCCESS';
-        payment.transactionId = paymentId || payment.transactionId;
+        payment.transactionId = String(session.payment_intent || payment.transactionId || '');
         payment.paidAt = new Date();
         payment.invoiceNumber = payment.invoiceNumber || `INV-${Date.now()}`;
         await payment.save();
@@ -245,10 +203,12 @@ class PaymentService {
       return payment;
     }
 
-    payment.status = 'FAILED';
-    payment.failureReason = `PayHere status code ${statusCode}`;
-    await payment.save();
-    await appointmentClient.updateAppointmentPaymentStatus(payment.appointmentId, 'FAILED', String(payment._id));
+    if (payment.status !== 'FAILED') {
+      payment.status = 'FAILED';
+      payment.failureReason = `Stripe checkout payment_status=${session.payment_status || 'unknown'}`;
+      await payment.save();
+      await appointmentClient.updateAppointmentPaymentStatus(payment.appointmentId, 'FAILED', String(payment._id));
+    }
     return payment;
   }
 

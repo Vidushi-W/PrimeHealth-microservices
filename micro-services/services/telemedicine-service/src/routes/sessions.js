@@ -4,6 +4,8 @@ const { auth, requireRole } = require('../middleware/auth');
 const ConsultationSession = require('../models/ConsultationSession');
 const { canAccessSession, assertTelemedicineVideoAccess } = require('../services/sessionAccess');
 const { getRoomName, generateVideoSessionPayload } = require('../services/videoProviders');
+const { fetchAppointmentById } = require('../services/appointmentClient');
+const env = require('../config/env');
 
 const router = express.Router();
 
@@ -37,6 +39,83 @@ const loadSession = async (sessionId) => {
     return ConsultationSession.findById(sessionId);
 };
 
+const asIsoDateTime = (dateText, timeText) => {
+    const day = String(dateText || '').slice(0, 10);
+    const hhmm = String(timeText || '').slice(0, 5);
+    if (!day || !hhmm) return null;
+    const base = new Date(`${day}T${hhmm}:00.000Z`);
+    if (!Number.isFinite(base.getTime())) return null;
+    return base;
+};
+
+const parseUserToAppointmentHeaders = (req) => ({
+    Authorization: req.headers.authorization || '',
+    'x-user-id': String(req.user?.userId || ''),
+    'x-user-role': String(req.user?.role || '').toUpperCase(),
+    'x-user-email': String(req.user?.email || ''),
+    'x-user-unique-id': String(req.user?.uniqueId || '')
+});
+
+const ensureAppointmentAccess = async (req, session) => {
+    const appointmentId = String(session?.appointmentId || '').trim();
+    if (!appointmentId) {
+        return { allowed: true, reason: '', appointment: null };
+    }
+
+    const appointment = await fetchAppointmentById(appointmentId, parseUserToAppointmentHeaders(req));
+    if (!appointment) {
+        return {
+            allowed: false,
+            reason: 'Appointment not found or inaccessible.',
+            code: 'APPOINTMENT_NOT_FOUND'
+        };
+    }
+
+    const mode = String(appointment.mode || '').toLowerCase();
+    if (mode !== 'online') {
+        return {
+            allowed: false,
+            reason: 'Telemedicine is available only for online appointments.',
+            code: 'APPOINTMENT_NOT_ONLINE'
+        };
+    }
+
+    const paymentStatus = String(appointment.paymentStatus || '').toUpperCase();
+    const status = String(appointment.status || '').toUpperCase();
+    const paidOrConfirmed = paymentStatus === 'PAID' || status === 'CONFIRMED';
+    if (!paidOrConfirmed) {
+        return {
+            allowed: false,
+            reason: 'Complete payment before joining telemedicine.',
+            code: 'PAYMENT_REQUIRED'
+        };
+    }
+
+    return {
+        allowed: true,
+        reason: '',
+        appointment,
+        code: ''
+    };
+};
+
+const ensureSessionAccess = async (req, session) => {
+    if (canAccessSession(req.user, session)) {
+        return { allowed: true, reason: '', code: '' };
+    }
+
+    const appointmentAccess = await ensureAppointmentAccess(req, session);
+    if (appointmentAccess.allowed) {
+        return { allowed: true, reason: '', code: '' };
+    }
+
+    return {
+        allowed: false,
+        reason: appointmentAccess.reason || 'You cannot access this session.',
+        code: appointmentAccess.code || 'SESSION_ACCESS_DENIED'
+    };
+};
+
 /** Doctor or patient (admin treated as doctor for room presence). */
 const resolveConferenceRole = (user) => {
     if (user.role === 'doctor' || user.role === 'admin') {
@@ -47,8 +126,8 @@ const resolveConferenceRole = (user) => {
 };
 
 /**
- * Marks this user as joining the conference, opens the room when still scheduled,
- * and records who first created the Jitsi room (Meet-style: either party can go first).
+ * Marks participant presence and opens room.
+ * With doctor-host policy, room becomes live only after doctor joins.
  */
 const recordParticipantJoin = (session, user, via = 'join') => {
     const joinedRole = resolveConferenceRole(user);
@@ -69,18 +148,25 @@ const recordParticipantJoin = (session, user, via = 'join') => {
         lastJoinedAt: now.toISOString()
     };
 
-    if (session.status === 'scheduled') {
-        metadata.roomOpenedAt = metadata.roomOpenedAt || now.toISOString();
-        metadata.roomOpenedBy = metadata.roomOpenedBy || joinedRole;
-    }
-
-    if (joinedRole === 'doctor' && via === 'start') {
+    if (joinedRole === 'doctor') {
         metadata.doctorHasStarted = true;
+    }
+    if (joinedRole === 'patient' && session.status === 'scheduled') {
+        metadata.patientWaitingSince = metadata.patientWaitingSince || now.toISOString();
     }
 
     session.metadata = metadata;
 
-    if (session.status === 'scheduled') {
+    const shouldOpenRoom =
+        session.status === 'scheduled'
+        && (joinedRole === 'doctor' || !env.doctorHostRequired);
+
+    if (shouldOpenRoom) {
+        session.metadata = {
+            ...(session.metadata || {}),
+            roomOpenedAt: session.metadata?.roomOpenedAt || now.toISOString(),
+            roomOpenedBy: session.metadata?.roomOpenedBy || joinedRole
+        };
         session.status = 'live';
         session.startedAt = session.startedAt || now;
     }
@@ -116,19 +202,8 @@ router.post('/', requireRole('doctor', 'admin', 'patient'), async (req, res) => 
             String(req.user.email || '').trim()
         ].filter(Boolean));
 
-        if (req.user.role === 'doctor' && !participantIds.has(String(doctorId).trim())) {
-            return res.status(403).json({
-                success: false,
-                message: 'Doctors can only create sessions for themselves.'
-            });
-        }
-
-        if (req.user.role === 'patient' && !participantIds.has(String(patientId).trim())) {
-            return res.status(403).json({
-                success: false,
-                message: 'Patients can only create sessions for themselves.'
-            });
-        }
+        const requestedDoctorId = String(doctorId || '').trim();
+        const requestedPatientId = String(patientId || '').trim();
 
         if (!isValidDate(scheduledStartAt) || !isValidDate(scheduledEndAt)) {
             return res.status(400).json({
@@ -148,9 +223,45 @@ router.post('/', requireRole('doctor', 'admin', 'patient'), async (req, res) => 
         }
 
         const trimmedAppointmentId = String(appointmentId || '').trim();
+        let appointmentSnapshot = null;
+        if (trimmedAppointmentId) {
+            const appointmentAccess = await ensureAppointmentAccess(req, { appointmentId: trimmedAppointmentId });
+            if (!appointmentAccess.allowed) {
+                return res.status(403).json({
+                    success: false,
+                    code: appointmentAccess.code,
+                    message: appointmentAccess.reason
+                });
+            }
+            appointmentSnapshot = appointmentAccess.appointment;
+        }
+
+        // For direct create (without appointment snapshot), enforce strict self-only role mapping.
+        // For appointment-linked create, appointment-service authorization already gates access.
+        if (!appointmentSnapshot && req.user.role === 'doctor' && !participantIds.has(requestedDoctorId)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Doctors can only create sessions for themselves.'
+            });
+        }
+
+        if (!appointmentSnapshot && req.user.role === 'patient' && !participantIds.has(requestedPatientId)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Patients can only create sessions for themselves.'
+            });
+        }
         if (trimmedAppointmentId) {
             const existingForAppointment = await ConsultationSession.findOne({ appointmentId: trimmedAppointmentId });
             if (existingForAppointment) {
+                const sessionAccess = await ensureSessionAccess(req, existingForAppointment);
+                if (!sessionAccess.allowed) {
+                    return res.status(403).json({
+                        success: false,
+                        code: sessionAccess.code || 'SESSION_ACCESS_DENIED',
+                        message: sessionAccess.reason || 'You cannot access this session.'
+                    });
+                }
                 return res.status(200).json({
                     success: true,
                     data: parseSessionDocument(existingForAppointment)
@@ -159,13 +270,20 @@ router.post('/', requireRole('doctor', 'admin', 'patient'), async (req, res) => 
         }
 
         const roomName = getRoomName(trimmedAppointmentId);
+        const effectiveDoctorId = String(appointmentSnapshot?.doctorId || doctorId).trim();
+        const effectivePatientId = String(appointmentSnapshot?.patientId || patientId).trim();
+        const appointmentDate = String(appointmentSnapshot?.appointmentDate || '').trim();
+        const appointmentStart = String(appointmentSnapshot?.startTime || '').trim();
+        const appointmentEnd = String(appointmentSnapshot?.endTime || appointmentStart).trim();
+        const scheduleStart = appointmentDate && appointmentStart ? asIsoDateTime(appointmentDate, appointmentStart) : startDate;
+        const scheduleEnd = appointmentDate && appointmentEnd ? asIsoDateTime(appointmentDate, appointmentEnd) : endDate;
 
         const session = await ConsultationSession.create({
             appointmentId: trimmedAppointmentId,
-            doctorId: String(doctorId).trim(),
-            patientId: String(patientId).trim(),
-            scheduledStartAt: startDate,
-            scheduledEndAt: endDate,
+            doctorId: effectiveDoctorId,
+            patientId: effectivePatientId,
+            scheduledStartAt: scheduleStart,
+            scheduledEndAt: scheduleEnd,
             provider: ['jitsi', 'twilio', 'agora'].includes(String(provider).toLowerCase())
                 ? String(provider).toLowerCase()
                 : undefined,
@@ -194,22 +312,29 @@ router.get('/', async (req, res) => {
             filter.status = status;
         }
 
-        if (req.user.role === 'doctor') {
-            filter.doctorId = req.user.userId;
-        }
-
-        if (req.user.role === 'patient') {
-            filter.patientId = req.user.userId;
-        }
-
         const sessions = await ConsultationSession
             .find(filter)
             .sort({ scheduledStartAt: -1 })
             .limit(100);
 
+        if (req.user.role === 'admin') {
+            return res.json({
+                success: true,
+                data: sessions.map(parseSessionDocument)
+            });
+        }
+
+        const allowedSessions = [];
+        for (const session of sessions) {
+            const sessionAccess = await ensureSessionAccess(req, session);
+            if (sessionAccess.allowed) {
+                allowedSessions.push(session);
+            }
+        }
+
         return res.json({
             success: true,
-            data: sessions.map(parseSessionDocument)
+            data: allowedSessions.map(parseSessionDocument)
         });
     } catch (error) {
         return res.status(500).json({
@@ -230,10 +355,12 @@ router.get('/:sessionId', async (req, res) => {
             });
         }
 
-        if (!canAccessSession(req.user, session)) {
+        const sessionAccess = await ensureSessionAccess(req, session);
+        if (!sessionAccess.allowed) {
             return res.status(403).json({
                 success: false,
-                message: 'You cannot access this session.'
+                code: sessionAccess.code || 'SESSION_ACCESS_DENIED',
+                message: sessionAccess.reason || 'You cannot access this session.'
             });
         }
 
@@ -249,7 +376,7 @@ router.get('/:sessionId', async (req, res) => {
     }
 });
 
-router.post('/:sessionId/start', requireRole('doctor', 'admin', 'patient'), async (req, res) => {
+router.post('/:sessionId/start', requireRole('doctor', 'admin'), async (req, res) => {
     try {
         const session = await loadSession(req.params.sessionId);
 
@@ -260,10 +387,21 @@ router.post('/:sessionId/start', requireRole('doctor', 'admin', 'patient'), asyn
             });
         }
 
-        if (!canAccessSession(req.user, session)) {
+        const sessionAccess = await ensureSessionAccess(req, session);
+        if (!sessionAccess.allowed) {
             return res.status(403).json({
                 success: false,
-                message: 'You cannot access this session.'
+                code: sessionAccess.code || 'SESSION_ACCESS_DENIED',
+                message: sessionAccess.reason || 'You cannot access this session.'
+            });
+        }
+
+        const appointmentAccess = await ensureAppointmentAccess(req, session);
+        if (!appointmentAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                code: appointmentAccess.code || 'APPOINTMENT_NOT_ALLOWED',
+                message: appointmentAccess.reason
             });
         }
 
@@ -274,7 +412,7 @@ router.post('/:sessionId/start', requireRole('doctor', 'admin', 'patient'), asyn
             });
         }
 
-        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session, { forVideoToken: false });
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
@@ -309,14 +447,25 @@ router.post('/:sessionId/join', async (req, res) => {
             });
         }
 
-        if (!canAccessSession(req.user, session)) {
+        const sessionAccess = await ensureSessionAccess(req, session);
+        if (!sessionAccess.allowed) {
             return res.status(403).json({
                 success: false,
-                message: 'You cannot access this session.'
+                code: sessionAccess.code || 'SESSION_ACCESS_DENIED',
+                message: sessionAccess.reason || 'You cannot access this session.'
             });
         }
 
-        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
+        const appointmentAccess = await ensureAppointmentAccess(req, session);
+        if (!appointmentAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                code: appointmentAccess.code || 'APPOINTMENT_NOT_ALLOWED',
+                message: appointmentAccess.reason
+            });
+        }
+
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session, { forVideoToken: false });
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
@@ -352,10 +501,12 @@ router.post('/:sessionId/end', async (req, res) => {
             });
         }
 
-        if (!canAccessSession(req.user, session)) {
+        const sessionAccess = await ensureSessionAccess(req, session);
+        if (!sessionAccess.allowed) {
             return res.status(403).json({
                 success: false,
-                message: 'You cannot access this session.'
+                code: sessionAccess.code || 'SESSION_ACCESS_DENIED',
+                message: sessionAccess.reason || 'You cannot access this session.'
             });
         }
 
@@ -434,7 +585,16 @@ router.post('/:sessionId/video-token', async (req, res) => {
             });
         }
 
-        const joinAccess = assertTelemedicineVideoAccess(req.user, session);
+        const appointmentAccess = await ensureAppointmentAccess(req, session);
+        if (!appointmentAccess.allowed) {
+            return res.status(403).json({
+                success: false,
+                code: appointmentAccess.code || 'APPOINTMENT_NOT_ALLOWED',
+                message: appointmentAccess.reason
+            });
+        }
+
+        const joinAccess = assertTelemedicineVideoAccess(req.user, session, { forVideoToken: true });
         if (!joinAccess.allowed) {
             return res.status(403).json({
                 success: false,
