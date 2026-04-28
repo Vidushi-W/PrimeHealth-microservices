@@ -24,7 +24,11 @@ import FamilyProfilesPage from './pages/FamilyProfilesPage';
 import PatientInsightsPage from './pages/PatientInsightsPage';
 import MedicalHistoryPage from './pages/MedicalHistoryPage';
 import PatientNotificationsPage from './pages/PatientNotificationsPage';
-import { getStoredAuth, persistAuth } from './services/platformApi';
+
+import { getStoredAuth, persistAuth, fetchPatientAppointments, fetchTelemedicineSessions } from './services/platformApi';
+import { getUpcomingReminders } from './services/patientApi';
+
+import doctorPortalBackground from './assets/Dortor_Portal_Background_Image.png';
 
 function getDefaultRoute(role) {
   switch (role) {
@@ -231,30 +235,90 @@ function PortalShell({ theme, title, subtitle, userLabel, onLogout, links, child
       chip: 'bg-slate-800/70 border-slate-700'
     },
     doctor: {
-      shell: 'bg-brand-radial',
-      sidebar: 'bg-slate-900/95 text-slate-100 border-slate-800',
+      shell: 'doctor-shell bg-brand-radial',
+      sidebar: 'doctor-sidebar bg-slate-900/95 text-slate-100 border-slate-800',
       accent: 'from-brand-500 to-bondi',
       brand: 'text-brand-100',
-      chip: 'bg-slate-800/70 border-slate-700'
+      chip: 'bg-slate-800/70 border-slate-700',
+      contentShell: 'doctor-portal-shell',
+      contentMain: 'doctor-portal-main',
+      backgroundImage: doctorPortalBackground
     },
     admin: {
       shell: 'bg-brand-radial',
       sidebar: 'bg-slate-900/95 text-slate-100 border-slate-800',
       accent: 'from-bondi to-cerulean',
       brand: 'text-brand-100',
-      chip: 'bg-slate-800/70 border-slate-700'
+      chip: 'bg-slate-800/70 border-slate-700',
+      contentShell: '',
+      contentMain: '',
+      backgroundImage: ''
     }
   }[theme];
 
+  if (theme !== 'doctor') {
+    themeStyles.contentShell = '';
+    themeStyles.contentMain = '';
+    themeStyles.backgroundImage = '';
+  }
+
+  const getDoctorNavIcon = (label) => {
+    const iconClassName = 'h-5 w-5';
+
+    switch (label) {
+      case 'Dashboard':
+        return (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName} aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+        );
+      case 'Appointments':
+        return (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName} aria-hidden="true">
+            <rect x="3" y="5" width="18" height="16" rx="3" />
+            <path d="M16 3v4M8 3v4M3 10h18" />
+          </svg>
+        );
+      case 'Profile':
+        return (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName} aria-hidden="true">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="4" />
+          </svg>
+        );
+      case 'Earnings':
+        return (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName} aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M14.8 9.6c-.3-1-1.2-1.6-2.8-1.6-1.7 0-2.8.8-2.8 2 0 1.2 1.1 1.7 2.7 2 1.6.3 2.7.8 2.7 2 0 1.2-1.1 2-2.8 2-1.5 0-2.5-.5-2.9-1.6M12 6.7v10.6" />
+          </svg>
+        );
+      case 'Notifications':
+        return (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName} aria-hidden="true">
+            <path d="M15 18H5l1.4-1.4A2 2 0 0 0 7 15.2V11a5 5 0 1 1 10 0v4.2a2 2 0 0 0 .6 1.4L19 18h-4" />
+            <path d="M10 20a2 2 0 0 0 4 0" />
+          </svg>
+        );
+      default:
+        return null;
+    }
+  };
+
   const sidebarLinkClass = ({ isActive }) =>
-    `group flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${isActive ? 'border-brand-300/40 bg-brand-400/15 text-white' : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-800 hover:text-white'}`;
+    theme === 'doctor'
+      ? `doctor-nav-link group flex items-center gap-3 rounded-[1.4rem] border px-4 py-4 text-sm font-semibold transition ${isActive ? 'border-cyan-300/20 bg-cyan-400/16 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'border-transparent text-slate-200/92 hover:border-white/10 hover:bg-white/8 hover:text-white'}`
+      : `group flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${isActive ? 'border-brand-300/40 bg-brand-400/15 text-white' : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-800 hover:text-white'}`;
 
   return (
     <div className={`min-h-screen ${themeStyles.shell}`}>
-      <div className="mx-auto grid min-h-screen w-full max-w-[1740px] gap-0 lg:grid-cols-[288px_1fr]">
+      <div className={`mx-auto grid min-h-screen w-full max-w-[1740px] gap-0 ${theme === 'doctor' ? 'lg:grid-cols-[300px_1fr]' : 'lg:grid-cols-[288px_1fr]'}`}>
         <aside className={`border-r p-4 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto ${themeStyles.sidebar}`}>
-          <div className="flex h-full min-h-0 flex-col gap-6">
-            <div className="rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 text-white">
+          <div className={`flex h-full min-h-0 flex-col ${theme === 'doctor' ? 'gap-4' : 'gap-6'}`}>
+            <div className={`${theme === 'doctor' ? 'doctor-brand-card rounded-[2rem] border border-white/10 bg-transparent px-6 py-5 text-white shadow-none' : 'rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 text-white'}`}>
               <div className={`inline-flex rounded-full bg-gradient-to-r ${themeStyles.accent} px-3 py-1 text-[0.65rem] font-bold uppercase tracking-[0.25em] text-white`}>
                 {title}
               </div>
@@ -262,26 +326,63 @@ function PortalShell({ theme, title, subtitle, userLabel, onLogout, links, child
               <p className="mt-1 text-xs text-slate-300">{subtitle}</p>
             </div>
 
-            <nav className="space-y-2">
+            <nav className={`${theme === 'doctor' ? 'space-y-2' : 'space-y-2'}`}>
               {links.map((link) => (
                 <NavLink key={link.to} to={link.to} className={sidebarLinkClass}>
-                  <span>{link.label}</span>
-                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-0 transition group-hover:opacity-50" />
+{theme === 'doctor' ? (
+  <>
+    <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/6 text-cyan-100 transition group-hover:bg-white/10">
+      {getDoctorNavIcon(link.label)}
+    </span>
+    <span className="flex-1 text-base font-semibold">{link.label}</span>
+  </>
+) : (
+  <>
+    <span>{link.label}</span>
+    <span
+      className={
+        link.showDot
+          ? 'h-2 w-2 rounded-full bg-rose-400'
+          : 'h-1.5 w-1.5 rounded-full bg-current opacity-0 transition group-hover:opacity-50'
+      }
+    />
+  </>
+)}
                 </NavLink>
               ))}
             </nav>
 
-            <div className={`mt-auto rounded-2xl border p-3.5 ${themeStyles.chip}`}>
+            <div className={`mt-auto ${theme === 'doctor' ? 'doctor-user-card rounded-[2rem] border border-white/10 p-3.5' : `rounded-2xl border p-3.5 ${themeStyles.chip}`}`}>
               <p className={`text-xs font-bold uppercase tracking-[0.25em] ${themeStyles.brand}`}>Signed in as</p>
               <p className="mt-1.5 text-sm font-semibold text-slate-100">{userLabel}</p>
-              <button className="button-secondary mt-4 w-full" onClick={onLogout} type="button">Logout</button>
+              <button className={`${theme === 'doctor' ? 'doctor-logout-button mt-4 w-full' : 'button-secondary mt-4 w-full'}`} onClick={onLogout} type="button">Logout</button>
             </div>
           </div>
         </aside>
 
-        <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
-          {children}
-        </main>
+        <div className={`relative min-w-0 overflow-hidden ${themeStyles.contentShell || ''}`}>
+          {themeStyles.backgroundImage ? (
+            <>
+              <div
+                className="absolute inset-0 bg-cover bg-no-repeat"
+                style={{ backgroundImage: `url(${themeStyles.backgroundImage})`, backgroundPosition: '88% center' }}
+                aria-hidden="true"
+              />
+              <div
+                className="absolute inset-0 bg-[linear-gradient(180deg,rgba(243,250,255,0.68),rgba(232,244,252,0.82)_45%,rgba(244,251,255,0.88))]"
+                aria-hidden="true"
+              />
+              <div
+                className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,116,144,0.18),transparent_30%),radial-gradient(circle_at_15%_18%,rgba(255,255,255,0.5),transparent_28%)]"
+                aria-hidden="true"
+              />
+            </>
+          ) : null}
+
+          <main className={`relative z-10 min-h-screen px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 ${themeStyles.contentMain || ''}`}>
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   );
