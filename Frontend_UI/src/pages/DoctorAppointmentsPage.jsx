@@ -264,21 +264,39 @@ export default function DoctorAppointmentsPage({ auth }) {
                   {item.reason ? <p className="mt-2 text-sm text-slate-500">Reason: {item.reason}</p> : null}
                   <p className="mt-2 text-xs font-semibold text-slate-600">Payment: {paymentStatus || 'UNPAID'}</p>
                 </div>
-                <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{currentStatus}</span>
+                <div className="flex items-center gap-2">
+                  {currentStatus !== 'COMPLETED' ? (
+                    <button
+                      type="button"
+                      title="Mark completed"
+                      aria-label="Mark completed"
+                      disabled={updatingId === appointmentId}
+                      onClick={() => handleStatusChange(item, 'COMPLETED')}
+                      className="button-secondary px-3"
+                    >
+                      ✓
+                    </button>
+                  ) : null}
+                  <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{currentStatus}</span>
+                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {STATUS_FLOW.filter((status) => status !== currentStatus).map((status) => (
-                  <button
-                    key={status}
-                    type="button"
-                    disabled={updatingId === appointmentId}
-                    onClick={() => handleStatusChange(item, status)}
-                    className="button-secondary"
-                  >
-                    Mark {status.toLowerCase()}
-                  </button>
-                ))}
+                {STATUS_FLOW.filter((status) => status !== currentStatus && status !== 'COMPLETED').map((status) => {
+                  return (
+                    <button
+                      key={status}
+                      type="button"
+                      title={`Mark ${status.toLowerCase()}`}
+                      aria-label={`Mark ${status.toLowerCase()}`}
+                      disabled={updatingId === appointmentId}
+                      onClick={() => handleStatusChange(item, status)}
+                      className="button-secondary"
+                    >
+                      {`Mark ${status.toLowerCase()}`}
+                    </button>
+                  );
+                })}
                 {(item.mode || '').toLowerCase() === 'online' && paymentReady ? (
                   <Link className="button-primary" to={`/telemedicine?appointmentId=${encodeURIComponent(canonicalAppointmentId)}`}>Host telemedicine meeting</Link>
                 ) : null}

@@ -24,7 +24,10 @@ import FamilyProfilesPage from './pages/FamilyProfilesPage';
 import PatientInsightsPage from './pages/PatientInsightsPage';
 import MedicalHistoryPage from './pages/MedicalHistoryPage';
 import PatientNotificationsPage from './pages/PatientNotificationsPage';
-import { getStoredAuth, persistAuth } from './services/platformApi';
+
+import { getStoredAuth, persistAuth, fetchPatientAppointments, fetchTelemedicineSessions } from './services/platformApi';
+import { getUpcomingReminders } from './services/patientApi';
+
 import doctorPortalBackground from './assets/Dortor_Portal_Background_Image.png';
 
 function getDefaultRoute(role) {
@@ -55,6 +58,16 @@ function ProtectedRoute({ auth, allowedRoles, children }) {
 
 function syncAuthStorage(auth) {
   persistAuth(auth);
+}
+
+function parseTime(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function notificationSeenKey(user) {
+  const userId = String(user?.userId || user?.id || user?._id || user?.email || 'patient').trim();
+  return `primehealth:patient_notifications_seen_at:${userId}`;
 }
 
 function AppShell() {
@@ -102,6 +115,70 @@ function AppShell() {
   };
 
   const role = auth?.user?.role;
+  const [patientHasUnreadNotifications, setPatientHasUnreadNotifications] = useState(false);
+
+  useEffect(() => {
+    if (role !== 'patient') {
+      setPatientHasUnreadNotifications(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const seenKey = notificationSeenKey(auth?.user);
+
+    const readSeenAt = () => Number(localStorage.getItem(seenKey) || 0);
+    const writeSeenAt = (value) => localStorage.setItem(seenKey, String(value || Date.now()));
+
+    if (!readSeenAt()) {
+      writeSeenAt(Date.now());
+    }
+
+    const computeLatestNotificationTimestamp = async () => {
+      const [upcomingReminders, appointments, sessions] = await Promise.all([
+        getUpcomingReminders(auth.token).catch(() => ({ reminders: [] })),
+        fetchPatientAppointments(auth).catch(() => []),
+        fetchTelemedicineSessions(auth).catch(() => [])
+      ]);
+
+      const reminderTimes = (upcomingReminders?.reminders || []).map((item) =>
+        parseTime(item?.scheduledAt || item?.createdAt)
+      );
+      const appointmentTimes = (appointments || []).map((item) => parseTime(item?.appointmentDate || item?.createdAt));
+      const telemedicineTimes = (sessions || [])
+        .filter((session) =>
+          Boolean(
+            session?.metadata?.participants?.doctor?.joinedAt
+            || session?.metadata?.doctorHasStarted
+            || ['live', 'completed'].includes(String(session?.status || '').toLowerCase())
+          )
+        )
+        .map((session) => parseTime(session?.updatedAt || session?.createdAt));
+
+      return Math.max(0, ...reminderTimes, ...appointmentTimes, ...telemedicineTimes);
+    };
+
+    const refreshUnread = async () => {
+      if (location.pathname === '/patient/notifications') {
+        writeSeenAt(Date.now());
+        if (!cancelled) setPatientHasUnreadNotifications(false);
+        return;
+      }
+
+      const latestTimestamp = await computeLatestNotificationTimestamp().catch(() => 0);
+      const seenAt = readSeenAt();
+      if (!cancelled) {
+        setPatientHasUnreadNotifications(latestTimestamp > seenAt);
+      }
+    };
+
+    refreshUnread();
+    const interval = window.setInterval(refreshUnread, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [auth, location.pathname, role]);
 
   if (!auth?.token) {
     return (
@@ -190,7 +267,7 @@ function AppShell() {
         { to: '/patient/dashboard', label: 'Dashboard' },
         { to: '/doctors', label: 'Find a Doctor' },
         { to: '/appointments', label: 'Appointments' },
-        { to: '/patient/notifications', label: 'Notifications' },
+        { to: '/patient/notifications', label: 'Notifications', showDot: patientHasUnreadNotifications },
         { to: '/profile', label: 'Profile' },
         { to: '/family-profiles', label: 'Family Profile' }
       ]}
@@ -326,19 +403,25 @@ function PortalShell({ theme, title, subtitle, userLabel, onLogout, links, child
             <nav className={`${theme === 'doctor' ? 'space-y-2' : 'space-y-2'}`}>
               {links.map((link) => (
                 <NavLink key={link.to} to={link.to} className={sidebarLinkClass}>
-                  {theme === 'doctor' ? (
-                    <>
-                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/6 text-cyan-100 transition group-hover:bg-white/10">
-                        {getDoctorNavIcon(link.label)}
-                      </span>
-                      <span className="flex-1 text-base font-semibold">{link.label}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>{link.label}</span>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-0 transition group-hover:opacity-50" />
-                    </>
-                  )}
+{theme === 'doctor' ? (
+  <>
+    <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/6 text-cyan-100 transition group-hover:bg-white/10">
+      {getDoctorNavIcon(link.label)}
+    </span>
+    <span className="flex-1 text-base font-semibold">{link.label}</span>
+  </>
+) : (
+  <>
+    <span>{link.label}</span>
+    <span
+      className={
+        link.showDot
+          ? 'h-2 w-2 rounded-full bg-rose-400'
+          : 'h-1.5 w-1.5 rounded-full bg-current opacity-0 transition group-hover:opacity-50'
+      }
+    />
+  </>
+)}
                 </NavLink>
               ))}
             </nav>
