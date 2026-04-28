@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-service
+  labels:
+    app: patient-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: patient-service
+  template:
+    metadata:
+      labels:
+        app: patient-service
+    spec:
+      containers:
+      - name: patient-service
+        image: primehealth/patient-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5001
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: PATIENT_PORT
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: NODE_ENV
+        - name: MONGO_URI
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: MONGODB_URI_PATIENT
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: primehealth-secrets
+              key: JWT_SECRET
+        - name: JWT_EXPIRES_IN
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: JWT_EXPIRES_IN
+        - name: APPOINTMENT_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: APPOINTMENT_SERVICE_URL
+        - name: DOCTOR_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: DOCTOR_SERVICE_URL
+        - name: PRESCRIPTION_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: PRESCRIPTION_SERVICE_URL
+        - name: INTERNAL_SERVICE_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: INTERNAL_SERVICE_TOKEN
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 15
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-service
+spec:
+  selector:
+    app: patient-service
+  ports:
+    - protocol: TCP
+      port: 5001
+      targetPort: 5001
+  type: ClusterIP

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getUpcomingReminders } from '../services/patientApi';
-import { fetchPatientAppointments } from '../services/platformApi';
+import { fetchPatientAppointments, fetchTelemedicineSessions } from '../services/platformApi';
 
 function parseTime(value) {
   const date = new Date(value || 0);
@@ -18,9 +18,10 @@ export default function PatientNotificationsPage({ auth }) {
 
     const load = async () => {
       setLoading(true);
-      const [upcomingReminders, appointments] = await Promise.all([
+      const [upcomingReminders, appointments, sessions] = await Promise.all([
         getUpcomingReminders(auth.token).catch(() => ({ reminders: [] })),
-        fetchPatientAppointments(auth).catch(() => [])
+        fetchPatientAppointments(auth).catch(() => []),
+        fetchTelemedicineSessions(auth).catch(() => [])
       ]);
 
       if (!mounted) return;
@@ -35,20 +36,51 @@ export default function PatientNotificationsPage({ auth }) {
         eventTime: reminder.scheduledAt || reminder.createdAt
       }));
 
+      const sessionsByAppointment = new Map();
+      (Array.isArray(sessions) ? sessions : []).forEach((session) => {
+        const appointmentId = String(session?.appointmentId || '').trim();
+        if (!appointmentId) return;
+        sessionsByAppointment.set(appointmentId, session);
+      });
+
       const appointmentItems = (appointments || [])
         .filter((appointment) => {
           const status = String(appointment.status || '').toUpperCase();
           return status === 'PENDING' || status === 'CONFIRMED';
         })
-        .map((appointment) => ({
-          id: `appt-${appointment._id || appointment.id}`,
-          category: 'Appointment',
-          title: `Upcoming visit with ${appointment.doctorName || 'your doctor'}`,
-          detail: `${new Date(appointment.appointmentDate || Date.now()).toLocaleDateString()} • ${appointment.startTime || 'TBD'}`,
-          actionLabel: (appointment.mode || '').toLowerCase() === 'online' ? 'Join telemedicine' : 'View appointments',
-          actionTo: (appointment.mode || '').toLowerCase() === 'online' ? '/telemedicine' : '/appointments',
-          eventTime: appointment.appointmentDate
-        }));
+        .map((appointment) => {
+          const appointmentId = String(
+            appointment.canonicalAppointmentId
+            || appointment.externalAppointmentId
+            || appointment.appointmentId
+            || appointment._id
+            || appointment.id
+            || ''
+          ).trim();
+          const linkedSession = sessionsByAppointment.get(appointmentId);
+          const doctorStarted = Boolean(
+            linkedSession?.metadata?.participants?.doctor?.joinedAt
+            || linkedSession?.metadata?.doctorHasStarted
+            || ['live', 'completed'].includes(String(linkedSession?.status || '').toLowerCase())
+          );
+          const telemedicinePath = linkedSession?.id
+            ? `/telemedicine?sessionId=${encodeURIComponent(String(linkedSession.id))}&appointmentId=${encodeURIComponent(appointmentId)}`
+            : `/telemedicine?appointmentId=${encodeURIComponent(appointmentId)}`;
+
+          return {
+            id: `appt-${appointment._id || appointment.id}`,
+            category: 'Appointment',
+            title: doctorStarted
+              ? `${appointment.doctorName || 'Your doctor'} started your telemedicine meeting`
+              : `Upcoming visit with ${appointment.doctorName || 'your doctor'}`,
+            detail: `${new Date(appointment.appointmentDate || Date.now()).toLocaleDateString()} • ${appointment.startTime || 'TBD'}`,
+            actionLabel: (appointment.mode || '').toLowerCase() === 'online'
+              ? (doctorStarted ? 'Join now' : 'Open telemedicine')
+              : 'View appointments',
+            actionTo: (appointment.mode || '').toLowerCase() === 'online' ? telemedicinePath : '/appointments',
+            eventTime: appointment.appointmentDate
+          };
+        });
 
       setItems([...reminderItems, ...appointmentItems]);
       setLoading(false);
