@@ -352,7 +352,7 @@ export default function DoctorAppointmentsPage({ auth }) {
                     onClick={() => handleStatusChange(item, status)}
                     className="button-secondary"
                   >
-                    {`Mark ${status.toLowerCase()}`}
+                    Mark {status.toLowerCase()}
                   </button>
                 ))}
                 {(item.mode || '').toLowerCase() === 'online' && paymentReady ? (

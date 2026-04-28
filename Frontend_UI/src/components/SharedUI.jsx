@@ -39,7 +39,8 @@ export function Button({ children, variant = 'primary', size = 'md', className =
     primary: 'button-primary focus:ring-brand-300',
     secondary: 'button-secondary focus:ring-brand-200',
     outline: 'border border-brand-200 bg-white text-slate-700 hover:bg-brand-50 focus:ring-brand-200',
-    ghost: 'text-brand-700 hover:bg-brand-50 focus:ring-brand-200'
+    ghost: 'text-brand-700 hover:bg-brand-50 focus:ring-brand-200',
+    error: 'bg-rose-500 text-white hover:bg-rose-600 focus:ring-rose-200'
   };
 
   const sizes = {

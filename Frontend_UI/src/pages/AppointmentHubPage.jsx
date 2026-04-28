@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -14,6 +14,7 @@ import {
   startStripeCheckout
 } from '../services/platformApi';
 import { getMyAppointments as getPatientPortalAppointments } from '../services/patientApi';
+import { Modal, Button } from '../components/SharedUI';
 
 function normalizeStatus(value) {
   const raw = String(value || '').toLowerCase();
@@ -68,6 +69,8 @@ function statusRank(value) {
 function mergeStatusTiered(a, b) {
   const A = normalizeStatus(a);
   const B = normalizeStatus(b);
+  // If either source says CANCELLED, honour the cancellation
+  if (A === 'CANCELLED' || B === 'CANCELLED') return 'CANCELLED';
   return statusRank(A) >= statusRank(B) ? A : B;
 }
 
@@ -230,7 +233,7 @@ export default function AppointmentHubPage({ auth }) {
   const [telemedicineByAppointment, setTelemedicineByAppointment] = useState({});
   const [telemedicineSessions, setTelemedicineSessions] = useState([]);
   const [viewFilter, setViewFilter] = useState('ACTIVE_PAID');
-  const notifiedLiveSessionIdsRef = useRef(new Set());
+  const [cancelTarget, setCancelTarget] = useState(null);
 
   const payAppointmentId = String(searchParams.get('payAppointmentId') || '').trim();
   const returnedSessionId = String(searchParams.get('session_id') || '').trim();
@@ -258,12 +261,6 @@ export default function AppointmentHubPage({ auth }) {
           nextTelemedicineMap[appointmentId] = session;
         }
       });
-      notifiedLiveSessionIdsRef.current = new Set(
-        (Array.isArray(sessions) ? sessions : [])
-          .filter((session) => hasDoctorStartedTelemedicine(session))
-          .map((session) => String(session.id || ''))
-          .filter(Boolean)
-      );
       setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
       setTelemedicineByAppointment(nextTelemedicineMap);
     } catch (error) {
@@ -285,15 +282,6 @@ export default function AppointmentHubPage({ auth }) {
         const appointmentId = String(session.appointmentId || '').trim();
         if (appointmentId) {
           nextTelemedicineMap[appointmentId] = session;
-        }
-        const sessionId = String(session.id || '');
-        if (
-          sessionId
-          && hasDoctorStartedTelemedicine(session)
-          && !notifiedLiveSessionIdsRef.current.has(sessionId)
-        ) {
-          notifiedLiveSessionIdsRef.current.add(sessionId);
-          toast.success('Your doctor has started a telemedicine meeting. You can join now.');
         }
       });
       setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
@@ -414,16 +402,30 @@ export default function AppointmentHubPage({ auth }) {
       setAppointments((current) =>
         current.map((item) =>
           String(item.canonicalAppointmentId || item.externalAppointmentId || item.appointmentId || item._id || item.id) === appointmentId
-            ? { ...item, ...updated }
+            ? { ...item, ...updated, status: 'CANCELLED' }
             : item
         )
       );
-      toast.success('Appointment cancelled');
+      toast.success('Appointment cancelled successfully');
+      // Reload to get fresh data from all sources
+      await loadAppointments();
     } catch (error) {
-      toast.error(error.message || 'Unable to cancel appointment');
+      const serverMsg = error?.response?.data?.message || error.message || 'Unable to cancel appointment';
+      toast.error(serverMsg);
     } finally {
       setWorkingId('');
     }
+  };
+
+  const triggerCancelConfirmation = (appointment) => {
+    setCancelTarget(appointment);
+  };
+
+  const executeCancel = async () => {
+    if (!cancelTarget) return;
+    const id = String(cancelTarget.canonicalAppointmentId || cancelTarget.externalAppointmentId || cancelTarget.appointmentId || cancelTarget._id || cancelTarget.id || '');
+    setCancelTarget(null);
+    await handleCancelAppointment(id);
   };
 
   const handleFetchQueue = async (appointmentId) => {
@@ -500,43 +502,100 @@ export default function AppointmentHubPage({ auth }) {
     }
   };
 
+  const filterLabels = {
+    ACTIVE_PAID: '✓ Active',
+    ALL: 'All',
+    PENDING: 'Pending',
+    CONFIRMED: 'Confirmed',
+    COMPLETED: 'Completed',
+    ONLINE: '🎥 Online',
+    PENDING_PAYMENT: '💳 Unpaid'
+  };
+
+  const statusDot = {
+    CONFIRMED: 'bg-emerald-400',
+    PENDING: 'bg-amber-400',
+    CANCELLED: 'bg-rose-400',
+    COMPLETED: 'bg-indigo-400'
+  };
+
+  const statusLabel = {
+    CONFIRMED: 'Confirmed',
+    PENDING: 'Pending',
+    CANCELLED: 'Cancelled',
+    COMPLETED: 'Completed'
+  };
+
   return (
-    <div className="space-y-6 animate-fade-up">
-      <section className="panel p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-600">Appointments</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Your bookings and reminders</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              Track status changes, upcoming reminders, and launch telemedicine calls when online visits are due.
-            </p>
+    <div className="space-y-8 animate-fade-up">
+      {/* ── Hero Header ─────────────────────────────────── */}
+      <section className="panel overflow-hidden relative">
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, rgba(11,122,117,0.06) 0%, rgba(31,138,211,0.06) 50%, rgba(216,111,69,0.04) 100%)' }} />
+        <div className="relative p-8">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <p className="eyebrow">📋 Appointments</p>
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-900" style={{ fontFamily: "'Fraunces', serif" }}>
+                Your Bookings &amp; Reminders
+              </h1>
+              <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-500">
+                Track status changes, upcoming reminders, and launch telemedicine calls when online visits are due.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3">
+                <span className="text-2xl font-black text-emerald-600">{upcomingCount}</span>
+                <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-emerald-500">Upcoming</span>
+              </div>
+              <div className="flex flex-col items-center rounded-2xl border border-brand-200 bg-brand-50 px-5 py-3">
+                <span className="text-2xl font-black text-brand-600">{visibleAppointments.length}</span>
+                <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-brand-500">Shown</span>
+              </div>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700">{upcomingCount} upcoming</span>
-            <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">{visibleAppointments.length} shown</span>
+
+          {/* ── Filter Tabs ──────────────────────────────── */}
+          <div className="mt-6 flex flex-wrap gap-2">
+            {Object.entries(filterLabels).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setViewFilter(key)}
+                className={`rounded-full px-4 py-2 text-xs font-bold transition-all duration-200 ${
+                  viewFilter === key
+                    ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-md shadow-brand-200'
+                    : 'bg-white border border-brand-200 text-slate-600 hover:border-brand-400 hover:bg-brand-50 hover:-translate-y-0.5'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {['ACTIVE_PAID', 'ALL', 'PENDING', 'CONFIRMED', 'COMPLETED', 'ONLINE', 'PENDING_PAYMENT'].map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              onClick={() => setViewFilter(filter)}
-              className={`rounded-full px-3 py-2 text-xs font-semibold ${viewFilter === filter ? 'bg-brand-500 text-white' : 'bg-brand-50 text-slate-700 hover:bg-brand-100'}`}
-            >
-              {filter === 'ACTIVE_PAID' ? 'Active (paid)' : filter.replace(/_/g, ' ')}
-            </button>
-          ))}
         </div>
       </section>
 
-      <section className="space-y-3">
-        {loading ? <article className="panel p-5 text-sm text-slate-500">Loading appointments...</article> : null}
+      {/* ── Appointment Cards ───────────────────────────── */}
+      <section className="space-y-4">
+        {loading ? (
+          <div className="panel p-12 text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-brand-200 border-t-brand-500" />
+            <p className="mt-4 text-sm font-medium text-slate-400">Loading your appointments…</p>
+          </div>
+        ) : null}
 
         {!loading && !visibleAppointments.length ? (
-          <article className="panel p-6 text-sm text-slate-500">
-            No appointments yet. Start by finding a doctor and reserving your first slot.
-          </article>
+          <div className="panel p-12 text-center">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-brand-50">
+              <span className="text-4xl">📅</span>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800" style={{ fontFamily: "'Fraunces', serif" }}>No appointments yet</h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
+              Start by finding a doctor and reserving your first slot. We'll keep everything organized here for you.
+            </p>
+            <Link to="/doctors" className="button-primary mt-6 inline-flex">
+              🔍 Find a Doctor
+            </Link>
+          </div>
         ) : null}
 
         {!loading &&
@@ -547,141 +606,185 @@ export default function AppointmentHubPage({ auth }) {
             const paymentStatus = String(appointment.paymentStatus || '').toUpperCase();
             const supportsCentralActions = Boolean(appointment.externalAppointmentId || appointment.source === 'central');
             const appointmentIdCandidates = [
-              appointment.localAppointmentId,
-              appointment._id,
-              appointment.id,
-              appointment.appointmentId,
-              appointment.canonicalAppointmentId,
-              appointment.externalAppointmentId,
-              appointmentId
+              appointment.localAppointmentId, appointment._id, appointment.id,
+              appointment.appointmentId, appointment.canonicalAppointmentId,
+              appointment.externalAppointmentId, appointmentId
             ].map((value) => String(value || '').trim()).filter(Boolean);
             const linkedSession = telemedicineSessions.find((item) =>
               appointmentIdCandidates.includes(String(item?.appointmentId || '').trim())
             ) || telemedicineByAppointment[appointmentId];
             const sessionStatus = String(linkedSession?.status || '').toLowerCase();
-            const canPayAfterSession =
-              isOnline
-              && sessionStatus === 'completed'
-              && paymentStatus !== 'PAID'
-              && !['CANCELLED'].includes(status);
+            const canPayAfterSession = isOnline && sessionStatus === 'completed' && paymentStatus !== 'PAID' && !['CANCELLED'].includes(status);
             const joinWindow = getJoinWindowState(appointment);
             const joinAppointmentId = String(
-              appointment.canonicalAppointmentId
-              || appointment.externalAppointmentId
-              || linkedSession?.appointmentId
-              || appointment.appointmentId
-              || appointment.localAppointmentId
-              || appointment._id
-              || appointment.id
-              || appointmentId
-              || ''
+              appointment.localAppointmentId || appointment._id || appointment.id
+              || appointment.appointmentId || appointment.canonicalAppointmentId
+              || appointment.externalAppointmentId || appointmentId || ''
             ).trim();
             const paymentReady = paymentStatus === 'PAID' || status === 'CONFIRMED';
-            const joinSessionId = String(linkedSession?.id || '').trim();
-            const canShowJoin = isMongoId(joinAppointmentId || linkedSession?.appointmentId)
-              && isOnline
-              && paymentReady
-              && ['PENDING', 'CONFIRMED'].includes(status);
-            const joinHref = joinSessionId
-              ? `/telemedicine?sessionId=${encodeURIComponent(joinSessionId)}&appointmentId=${encodeURIComponent(joinAppointmentId)}`
-              : `/telemedicine?appointmentId=${encodeURIComponent(joinAppointmentId)}`;
+            const canShowJoin = isMongoId(joinAppointmentId || linkedSession?.appointmentId) && isOnline && paymentReady && ['PENDING', 'CONFIRMED'].includes(status);
             const paymentTargetId = appointment.canonicalAppointmentId || appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id;
             const canInitiatePayment = isMongoId(paymentTargetId);
+            const doctorInitial = (appointment.doctorName || 'D').charAt(0).toUpperCase();
 
             return (
-              <article key={appointmentId} className="panel p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">{appointment.doctorName || 'Doctor consultation'}</h2>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {formatDate(appointment.appointmentDate)} • {appointment.startTime || appointment.timeSlot || 'TBD'}
-                    </p>
-                    {appointment.reason ? <p className="mt-2 text-sm text-slate-500">Reason: {appointment.reason}</p> : null}
+              <article
+                key={appointmentId}
+                className="panel overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
+                style={{ borderLeft: `4px solid ${status === 'CONFIRMED' ? '#10b981' : status === 'PENDING' ? '#f59e0b' : status === 'CANCELLED' ? '#ef4444' : '#6366f1'}` }}
+              >
+                <div className="p-6">
+                  <div className="flex flex-wrap items-start gap-4">
+                    {/* Doctor Avatar */}
+                    <div className="flex-shrink-0">
+                      <div
+                        className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg"
+                        style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' }}
+                      >
+                        {doctorInitial}
+                      </div>
+                    </div>
+
+                    {/* Doctor Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-lg font-bold text-slate-900 truncate">
+                          {appointment.doctorName || 'Doctor consultation'}
+                        </h2>
+                        {isOnline && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 border border-sky-200 px-2 py-0.5 text-[0.65rem] font-bold text-sky-600">
+                            🎥 Online
+                          </span>
+                        )}
+                        {!isOnline && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[0.65rem] font-bold text-amber-600">
+                            🏥 In-person
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                        <span className="inline-flex items-center gap-1">📅 {formatDate(appointment.appointmentDate)}</span>
+                        <span className="inline-flex items-center gap-1">🕐 {appointment.startTime || appointment.timeSlot || 'TBD'}</span>
+                      </div>
+                      {appointment.reason ? (
+                        <p className="mt-2 text-sm text-slate-400 italic">"{appointment.reason}"</p>
+                      ) : null}
+                    </div>
+
+                    {/* Status & Payment Badges */}
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${statusDot[status] || 'bg-slate-300'}`} />
+                        <span className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusTone(status)}`}>
+                          {statusLabel[status] || status}
+                        </span>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-0.5 text-[0.65rem] font-bold ${
+                        paymentStatus === 'PAID' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
+                        paymentStatus === 'PENDING' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                        'bg-slate-50 text-slate-500 border border-slate-200'
+                      }`}>
+                        {paymentStatus === 'PAID' ? '✓ Paid' : paymentStatus === 'PENDING' ? '⏳ Payment Pending' : '○ Unpaid'}
+                      </span>
+                      <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-slate-400">
+                        {getReminderText(appointment)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(status)}`}>{status}</span>
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{getReminderText(appointment)}</p>
-                  </div>
-                </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Link className="button-secondary" to="/doctors">
-                    Find another doctor
-                  </Link>
-                  {supportsCentralActions && ['PENDING', 'CONFIRMED'].includes(status) ? (
-                    <button
-                      type="button"
-                      disabled={workingId === appointmentId}
-                      onClick={() => handleCancelAppointment(appointmentId)}
-                      className="button-secondary"
-                    >
-                      Cancel appointment
-                    </button>
-                  ) : null}
+                  {/* ── Info Bar (Queue / Telemedicine) ────── */}
+                  {(queueByAppointment[appointmentId] || isOnline) && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {queueByAppointment[appointmentId] && (
+                        <div className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-1.5 text-xs font-semibold text-indigo-700">
+                          <span>🎫</span>
+                          Queue #{queueByAppointment[appointmentId]?.position ?? queueByAppointment[appointmentId]?.myQueueNumber ?? 'N/A'}
+                          <span className="text-indigo-300">|</span>
+                          {queueByAppointment[appointmentId]?.waitingCount ?? queueByAppointment[appointmentId]?.peopleAheadOfMe ?? '0'} ahead
+                        </div>
+                      )}
+                      {isOnline && (
+                        <div className="inline-flex items-center gap-2 rounded-xl border border-brand-100 bg-brand-50/60 px-3 py-1.5 text-xs font-semibold text-brand-700">
+                          <span>{linkedSession ? (sessionStatus === 'live' ? '🟢' : '📡') : '⏸️'}</span>
+                          Session: {linkedSession ? sessionStatus.toUpperCase() : 'NOT CREATED'}
+                          <span className="text-brand-300">|</span>
+                          {joinWindow.label}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                  {supportsCentralActions && ['PENDING', 'CONFIRMED'].includes(status) ? (
-                    <button
-                      type="button"
-                      disabled={workingId === appointmentId}
-                      onClick={() => handleFetchQueue(appointmentId)}
-                      className="button-secondary"
-                    >
-                      View queue
-                    </button>
-                  ) : null}
-
-                  {canShowJoin ? (
-                    <Link
-                      className="button-primary"
-                      to={joinHref}
-                    >
-                      Join online consultation
+                  {/* ── Action Buttons ────────────────────── */}
+                  <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+                    <Link className="button-secondary text-xs" to="/doctors">
+                      🔍 Find another doctor
                     </Link>
-                  ) : null}
-
-                  {canPayAfterSession && canInitiatePayment ? (
-                    <button
-                      type="button"
-                      disabled={workingId === appointmentId}
-                      onClick={() => handlePayOnline(appointment)}
-                      className="button-primary"
-                    >
-                      {workingId === appointmentId ? 'Processing payment...' : 'Pay online now'}
-                    </button>
-                  ) : null}
-                  {!canPayAfterSession && canInitiatePayment && paymentStatus !== 'PAID' && !['CANCELLED', 'COMPLETED'].includes(status) ? (
-                    <button
-                      type="button"
-                      disabled={workingId === appointmentId}
-                      onClick={() => handlePayOnline(appointment)}
-                      className="button-secondary"
-                    >
-                      {workingId === appointmentId ? 'Processing payment...' : 'Pay online now'}
-                    </button>
-                  ) : null}
+                    {supportsCentralActions && ['PENDING', 'CONFIRMED'].includes(status) && (
+                      <button
+                        type="button"
+                        disabled={workingId === appointmentId}
+                        onClick={() => triggerCancelConfirmation(appointment)}
+                        className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-white px-4 py-2.5 text-xs font-semibold text-rose-500 transition hover:bg-rose-50 hover:border-rose-300 hover:-translate-y-0.5 disabled:opacity-60"
+                      >
+                        ✕ Cancel
+                      </button>
+                    )}
+                    {supportsCentralActions && ['PENDING', 'CONFIRMED'].includes(status) && (
+                      <button
+                        type="button"
+                        disabled={workingId === appointmentId}
+                        onClick={() => handleFetchQueue(appointmentId)}
+                        className="button-secondary text-xs"
+                      >
+                        🎫 View queue
+                      </button>
+                    )}
+                    {canShowJoin && (
+                      <Link className="button-primary text-xs" to={`/telemedicine?appointmentId=${encodeURIComponent(joinAppointmentId)}`}>
+                        🎥 Join Consultation
+                      </Link>
+                    )}
+                    {canPayAfterSession && canInitiatePayment && (
+                      <button type="button" disabled={workingId === appointmentId} onClick={() => handlePayOnline(appointment)} className="button-primary text-xs">
+                        {workingId === appointmentId ? '⏳ Processing…' : '💳 Pay Now'}
+                      </button>
+                    )}
+                    {!canPayAfterSession && canInitiatePayment && paymentStatus !== 'PAID' && !['CANCELLED', 'COMPLETED'].includes(status) && (
+                      <button type="button" disabled={workingId === appointmentId} onClick={() => handlePayOnline(appointment)} className="button-secondary text-xs">
+                        {workingId === appointmentId ? '⏳ Processing…' : '💳 Pay online'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                {queueByAppointment[appointmentId] ? (
-                  <div className="mt-3 rounded-2xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-xs text-slate-700">
-                    Queue position: {queueByAppointment[appointmentId]?.position ?? queueByAppointment[appointmentId]?.myQueueNumber ?? 'N/A'}
-                    {' · '}
-                    Waiting count: {queueByAppointment[appointmentId]?.waitingCount ?? queueByAppointment[appointmentId]?.peopleAheadOfMe ?? 'N/A'}
-                  </div>
-                ) : null}
-
-                {isOnline ? (
-                  <div className="mt-3 rounded-2xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-xs text-slate-700">
-                    Session: {linkedSession ? sessionStatus.toUpperCase() : 'NOT CREATED'}
-                    {' · '}
-                    Payment: {paymentStatus || 'UNPAID'}
-                    {' · '}
-                    {joinWindow.label}
-                  </div>
-                ) : null}
               </article>
             );
           })}
       </section>
+
+      {/* ── Cancel Confirmation Modal ───────────────────── */}
+      <Modal
+        isOpen={!!cancelTarget}
+        onClose={() => setCancelTarget(null)}
+        title="Cancel Appointment"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>No, Keep it</Button>
+            <Button variant="error" onClick={executeCancel}>Yes, Cancel Appointment</Button>
+          </>
+        }
+      >
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-rose-50">
+            <span className="text-3xl">⚠️</span>
+          </div>
+          <p className="text-slate-600">
+            Are you sure you want to cancel your appointment with <strong className="text-slate-800">{cancelTarget?.doctorName || 'the doctor'}</strong> on <strong className="text-slate-800">{formatDate(cancelTarget?.appointmentDate)}</strong>?
+          </p>
+          <p className="mt-4 text-sm text-rose-500 font-semibold bg-rose-50 p-3 rounded-xl border border-rose-100">
+            This action cannot be undone and will remove the appointment from your active list.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }
