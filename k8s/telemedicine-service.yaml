@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemedicine-service
+  labels:
+    app: telemedicine-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemedicine-service
+  template:
+    metadata:
+      labels:
+        app: telemedicine-service
+    spec:
+      containers:
+      - name: telemedicine-service
+        image: primehealth/telemedicine-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5006
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: TELEMEDICINE_PORT
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: NODE_ENV
+        - name: MONGO_URI
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: MONGODB_URI_TELEMEDICINE
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: primehealth-secrets
+              key: JWT_SECRET
+        - name: JWT_EXPIRES_IN
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: JWT_EXPIRES_IN
+        - name: APPOINTMENT_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: APPOINTMENT_SERVICE_URL
+        - name: INTERNAL_SERVICE_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: INTERNAL_SERVICE_TOKEN
+        - name: VIDEO_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: VIDEO_PROVIDER
+        - name: JITSI_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: primehealth-config
+              key: JITSI_BASE_URL
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5006
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5006
+          initialDelaySeconds: 15
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemedicine-service
+spec:
+  selector:
+    app: telemedicine-service
+  ports:
+    - protocol: TCP
+      port: 5006
+      targetPort: 5006
+  type: ClusterIP

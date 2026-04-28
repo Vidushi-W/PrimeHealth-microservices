@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -230,6 +230,7 @@ export default function AppointmentHubPage({ auth }) {
   const [telemedicineByAppointment, setTelemedicineByAppointment] = useState({});
   const [telemedicineSessions, setTelemedicineSessions] = useState([]);
   const [viewFilter, setViewFilter] = useState('ACTIVE_PAID');
+  const notifiedLiveSessionIdsRef = useRef(new Set());
 
   const payAppointmentId = String(searchParams.get('payAppointmentId') || '').trim();
   const returnedSessionId = String(searchParams.get('session_id') || '').trim();
@@ -257,6 +258,12 @@ export default function AppointmentHubPage({ auth }) {
           nextTelemedicineMap[appointmentId] = session;
         }
       });
+      notifiedLiveSessionIdsRef.current = new Set(
+        (Array.isArray(sessions) ? sessions : [])
+          .filter((session) => hasDoctorStartedTelemedicine(session))
+          .map((session) => String(session.id || ''))
+          .filter(Boolean)
+      );
       setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
       setTelemedicineByAppointment(nextTelemedicineMap);
     } catch (error) {
@@ -278,6 +285,15 @@ export default function AppointmentHubPage({ auth }) {
         const appointmentId = String(session.appointmentId || '').trim();
         if (appointmentId) {
           nextTelemedicineMap[appointmentId] = session;
+        }
+        const sessionId = String(session.id || '');
+        if (
+          sessionId
+          && hasDoctorStartedTelemedicine(session)
+          && !notifiedLiveSessionIdsRef.current.has(sessionId)
+        ) {
+          notifiedLiveSessionIdsRef.current.add(sessionId);
+          toast.success('Your doctor has started a telemedicine meeting. You can join now.');
         }
       });
       setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
@@ -550,20 +566,25 @@ export default function AppointmentHubPage({ auth }) {
               && !['CANCELLED'].includes(status);
             const joinWindow = getJoinWindowState(appointment);
             const joinAppointmentId = String(
-              appointment.localAppointmentId
+              appointment.canonicalAppointmentId
+              || appointment.externalAppointmentId
+              || linkedSession?.appointmentId
+              || appointment.appointmentId
+              || appointment.localAppointmentId
               || appointment._id
               || appointment.id
-              || appointment.appointmentId
-              || appointment.canonicalAppointmentId
-              || appointment.externalAppointmentId
               || appointmentId
               || ''
             ).trim();
             const paymentReady = paymentStatus === 'PAID' || status === 'CONFIRMED';
+            const joinSessionId = String(linkedSession?.id || '').trim();
             const canShowJoin = isMongoId(joinAppointmentId || linkedSession?.appointmentId)
               && isOnline
               && paymentReady
               && ['PENDING', 'CONFIRMED'].includes(status);
+            const joinHref = joinSessionId
+              ? `/telemedicine?sessionId=${encodeURIComponent(joinSessionId)}&appointmentId=${encodeURIComponent(joinAppointmentId)}`
+              : `/telemedicine?appointmentId=${encodeURIComponent(joinAppointmentId)}`;
             const paymentTargetId = appointment.canonicalAppointmentId || appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id;
             const canInitiatePayment = isMongoId(paymentTargetId);
 
@@ -610,7 +631,10 @@ export default function AppointmentHubPage({ auth }) {
                   ) : null}
 
                   {canShowJoin ? (
-                    <Link className="button-primary" to={`/telemedicine?appointmentId=${encodeURIComponent(joinAppointmentId)}`}>
+                    <Link
+                      className="button-primary"
+                      to={joinHref}
+                    >
                       Join online consultation
                     </Link>
                   ) : null}
