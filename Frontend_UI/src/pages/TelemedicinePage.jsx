@@ -10,10 +10,6 @@ import {
   startTelemedicineSession
 } from '../services/platformApi';
 
-function normalizeComparableId(value) {
-  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
 function hasDoctorStarted(session) {
   const participants = session?.metadata?.participants || {};
   return Boolean(participants?.doctor?.joinedAt)
@@ -37,63 +33,9 @@ function roomNameFromAppointmentId(appointmentId) {
 
 function pickBestSessionForAppointment(sessions, appointmentId) {
   const id = String(appointmentId || '').trim();
-  const normalizedId = normalizeComparableId(id);
   const candidates = (Array.isArray(sessions) ? sessions : []).filter(
-    (item) => {
-      const appointmentMatch = String(item?.appointmentId || '').trim() === id;
-      const normalizedMatch = normalizedId
-        && normalizeComparableId(item?.appointmentId) === normalizedId;
-      const roomMatch = normalizedId
-        && normalizeComparableId(item?.roomName || '').includes(normalizedId);
-      return appointmentMatch || normalizedMatch || roomMatch;
-    }
+    (item) => String(item?.appointmentId || '').trim() === id
   );
-  if (!candidates.length) return null;
-
-  const rank = (item) => {
-    const status = String(item?.status || '').toLowerCase();
-    if (hasDoctorStarted(item)) return 3;
-    if (status === 'live') return 2;
-    if (status === 'scheduled') return 1;
-    return 0;
-  };
-
-  candidates.sort((a, b) => {
-    const r = rank(b) - rank(a);
-    if (r !== 0) return r;
-    const ta = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
-    const tb = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
-    return tb - ta;
-  });
-
-  return candidates[0];
-}
-
-function pickBestSessionForPatient(sessions, authContext) {
-  const user = authContext?.user || {};
-  const ids = new Set(
-    [
-      user.userId,
-      user.id,
-      user._id,
-      user.uniqueId,
-      user.email
-    ]
-      .map((value) => String(value || '').trim().toLowerCase())
-      .filter(Boolean)
-  );
-  if (!ids.size) return null;
-
-  const candidates = (Array.isArray(sessions) ? sessions : []).filter((item) => {
-    const participantPatient = item?.metadata?.participants?.patient || {};
-    const candidateValues = [
-      item?.patientId,
-      participantPatient?.userId
-    ]
-      .map((value) => String(value || '').trim().toLowerCase())
-      .filter(Boolean);
-    return candidateValues.some((value) => ids.has(value));
-  });
   if (!candidates.length) return null;
 
   const rank = (item) => {
@@ -266,7 +208,6 @@ function MeetingView({ sessionId, authContext, viewerRole, forcedRoomName = '' }
 
 export default function TelemedicinePage({ auth }) {
   const [searchParams] = useSearchParams();
-  const sessionIdFromQuery = String(searchParams.get('sessionId') || '').trim();
   const appointmentId = String(searchParams.get('appointmentId') || '').trim();
   const role = String(auth?.user?.role || '').toLowerCase();
   const authToken = String(auth?.token || '');
@@ -275,7 +216,7 @@ export default function TelemedicinePage({ auth }) {
   const [session, setSession] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState('');
-  const [directRoomName, setDirectRoomName] = useState('');
+  const [forcedRoomName, setForcedRoomName] = useState('');
   const pollingRef = useRef(null);
   const notifiedDoctorLiveRef = useRef(false);
 
@@ -304,7 +245,6 @@ export default function TelemedicinePage({ auth }) {
           setSession(joined || targetSession);
           setWaiting(false);
           setError('');
-          setDirectRoomName('');
           clearPolling();
         }
       } catch (joinError) {
@@ -313,6 +253,10 @@ export default function TelemedicinePage({ auth }) {
           if (!cancelled) {
             setWaiting(true);
             setError('');
+            const deterministicRoom = roomNameFromAppointmentId(appointmentId);
+            if (deterministicRoom) {
+              setForcedRoomName(deterministicRoom);
+            }
           }
           return;
         }
@@ -320,81 +264,25 @@ export default function TelemedicinePage({ auth }) {
       }
     };
 
-    const joinDirectlyByRoomName = (targetSession) => {
-      const fallbackRoom = `primehealth-${String(targetSession?.id || '').trim()}`;
-      const roomName = normalizeMeetRoomName(targetSession?.roomName, fallbackRoom);
-      if (!roomName) return false;
-      if (!cancelled) {
-        setSession(targetSession);
-        setDirectRoomName(roomName);
-        setWaiting(false);
-        setError('');
-        clearPolling();
-      }
-      return true;
-    };
-
-    const tryJoinLatestStartedSession = async (sessions) => {
-      const prioritized = (Array.isArray(sessions) ? sessions : [])
-        .filter((item) => hasDoctorStarted(item))
-        .sort((a, b) => {
-          const ta = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
-          const tb = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
-          return tb - ta;
-        })
-        .slice(0, 5);
-
-      for (const candidate of prioritized) {
-        try {
-          const joined = await joinTelemedicineSession(auth, candidate.id);
-          if (!cancelled) {
-            setSession(joined || candidate);
-            setWaiting(false);
-            setError('');
-            setDirectRoomName('');
-            clearPolling();
-          }
-          return joined || candidate;
-        } catch (_error) {
-          // Fallback: open the doctor-started room directly when join-state sync lags.
-          if (joinDirectlyByRoomName(candidate)) {
-            return candidate;
-          }
-        }
-      }
-
-      return null;
-    };
-
     const init = async () => {
       try {
         setLoading(true);
         setError('');
         setWaiting(false);
-        setDirectRoomName('');
+        setForcedRoomName('');
 
-        if (!appointmentId && !sessionIdFromQuery) {
+        if (!appointmentId) {
           throw new Error('Open telemedicine from an appointment card to start the meeting.');
         }
 
-        let target = null;
-        if (sessionIdFromQuery) {
-          target = await fetchTelemedicineSessionById(auth, sessionIdFromQuery).catch(() => null);
-        }
-        if (!target) {
-          const list = await fetchTelemedicineSessions(auth).catch(() => []);
-          target = pickBestSessionForAppointment(list, appointmentId);
-          if (!target && role === 'patient') {
-            target = pickBestSessionForPatient(list, auth);
-          }
-        }
+        const list = await fetchTelemedicineSessions(auth).catch(() => []);
+        let target = pickBestSessionForAppointment(list, appointmentId);
 
         if (!target) {
           if (role !== 'doctor') {
-            const latest = await fetchTelemedicineSessions(auth).catch(() => []);
-            const joinedLatest = await tryJoinLatestStartedSession(latest);
-            if (joinedLatest) {
-              return;
+            const deterministicRoom = roomNameFromAppointmentId(appointmentId);
+            if (deterministicRoom) {
+              setForcedRoomName(deterministicRoom);
             }
             setWaiting(true);
             setError('');
@@ -402,17 +290,12 @@ export default function TelemedicinePage({ auth }) {
             if (!pollingRef.current) {
               pollingRef.current = window.setInterval(async () => {
                 const latest = await fetchTelemedicineSessions(auth).catch(() => []);
-                const found = pickBestSessionForAppointment(latest, appointmentId)
-                  || pickBestSessionForPatient(latest, auth);
+                const found = pickBestSessionForAppointment(latest, appointmentId);
                 if (found) {
                   setSession(found);
                   if (hasDoctorStarted(found)) {
-                    await tryJoinAsPatient(found).catch(() => joinDirectlyByRoomName(found));
-                  } else {
-                    await tryJoinLatestStartedSession(latest);
+                    await tryJoinAsPatient(found).catch(() => null);
                   }
-                } else {
-                  await tryJoinLatestStartedSession(latest);
                 }
               }, 3000);
             }
@@ -452,27 +335,24 @@ export default function TelemedicinePage({ auth }) {
 
         await tryJoinAsPatient(target);
         if (!cancelled && !hasDoctorStarted(target)) {
-          const latestListNow = await fetchTelemedicineSessions(auth).catch(() => []);
-          await tryJoinLatestStartedSession(latestListNow);
           setWaiting(true);
+          const deterministicRoom = roomNameFromAppointmentId(appointmentId);
+          if (deterministicRoom) {
+            // Fallback: join deterministic room directly when backend presence sync lags.
+            setForcedRoomName(deterministicRoom);
+          }
           if (!pollingRef.current) {
             pollingRef.current = window.setInterval(async () => {
               const latestList = await fetchTelemedicineSessions(auth).catch(() => []);
-              const latest = pickBestSessionForAppointment(latestList, appointmentId)
-                || pickBestSessionForPatient(latestList, auth);
-              if (!latest) {
-                await tryJoinLatestStartedSession(latestList);
-                return;
-              }
+              const latest = pickBestSessionForAppointment(latestList, appointmentId);
+              if (!latest) return;
               setSession(latest);
               if (hasDoctorStarted(latest)) {
                 if (!notifiedDoctorLiveRef.current) {
                   notifiedDoctorLiveRef.current = true;
                   toast.success('Doctor is live now. Joining meeting...');
                 }
-                await tryJoinAsPatient(latest).catch(() => joinDirectlyByRoomName(latest));
-              } else {
-                await tryJoinLatestStartedSession(latestList);
+                await tryJoinAsPatient(latest).catch(() => null);
               }
             }, 3000);
           }
@@ -495,7 +375,7 @@ export default function TelemedicinePage({ auth }) {
     return () => {
       cancelled = true;
     };
-  }, [appointmentId, sessionIdFromQuery, role, authToken, authUserId]);
+  }, [appointmentId, role, authToken, authUserId]);
 
   if (loading) {
     return (
@@ -514,15 +394,14 @@ export default function TelemedicinePage({ auth }) {
   }
 
   if (waiting) {
-    const deterministicRoom = roomNameFromAppointmentId(appointmentId);
-    if (deterministicRoom) {
+    if (forcedRoomName) {
       return (
         <section className="panel w-full p-4 lg:p-5">
           <MeetingView
             sessionId={session?.id || appointmentId}
             authContext={auth}
             viewerRole={role}
-            forcedRoomName={deterministicRoom}
+            forcedRoomName={forcedRoomName}
           />
         </section>
       );
@@ -546,12 +425,7 @@ export default function TelemedicinePage({ auth }) {
 
   return (
     <section className="panel w-full p-4 lg:p-5">
-      <MeetingView
-        sessionId={session.id}
-        authContext={auth}
-        viewerRole={role}
-        forcedRoomName={directRoomName}
-      />
+      <MeetingView sessionId={session.id} authContext={auth} viewerRole={role} />
     </section>
   );
 }

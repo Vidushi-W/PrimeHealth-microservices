@@ -60,16 +60,6 @@ function syncAuthStorage(auth) {
   persistAuth(auth);
 }
 
-function parseTime(value) {
-  const date = new Date(value || 0);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function notificationSeenKey(user) {
-  const userId = String(user?.userId || user?.id || user?._id || user?.email || 'patient').trim();
-  return `primehealth:patient_notifications_seen_at:${userId}`;
-}
-
 function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -115,70 +105,6 @@ function AppShell() {
   };
 
   const role = auth?.user?.role;
-  const [patientHasUnreadNotifications, setPatientHasUnreadNotifications] = useState(false);
-
-  useEffect(() => {
-    if (role !== 'patient') {
-      setPatientHasUnreadNotifications(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    const seenKey = notificationSeenKey(auth?.user);
-
-    const readSeenAt = () => Number(localStorage.getItem(seenKey) || 0);
-    const writeSeenAt = (value) => localStorage.setItem(seenKey, String(value || Date.now()));
-
-    if (!readSeenAt()) {
-      writeSeenAt(Date.now());
-    }
-
-    const computeLatestNotificationTimestamp = async () => {
-      const [upcomingReminders, appointments, sessions] = await Promise.all([
-        getUpcomingReminders(auth.token).catch(() => ({ reminders: [] })),
-        fetchPatientAppointments(auth).catch(() => []),
-        fetchTelemedicineSessions(auth).catch(() => [])
-      ]);
-
-      const reminderTimes = (upcomingReminders?.reminders || []).map((item) =>
-        parseTime(item?.scheduledAt || item?.createdAt)
-      );
-      const appointmentTimes = (appointments || []).map((item) => parseTime(item?.appointmentDate || item?.createdAt));
-      const telemedicineTimes = (sessions || [])
-        .filter((session) =>
-          Boolean(
-            session?.metadata?.participants?.doctor?.joinedAt
-            || session?.metadata?.doctorHasStarted
-            || ['live', 'completed'].includes(String(session?.status || '').toLowerCase())
-          )
-        )
-        .map((session) => parseTime(session?.updatedAt || session?.createdAt));
-
-      return Math.max(0, ...reminderTimes, ...appointmentTimes, ...telemedicineTimes);
-    };
-
-    const refreshUnread = async () => {
-      if (location.pathname === '/patient/notifications') {
-        writeSeenAt(Date.now());
-        if (!cancelled) setPatientHasUnreadNotifications(false);
-        return;
-      }
-
-      const latestTimestamp = await computeLatestNotificationTimestamp().catch(() => 0);
-      const seenAt = readSeenAt();
-      if (!cancelled) {
-        setPatientHasUnreadNotifications(latestTimestamp > seenAt);
-      }
-    };
-
-    refreshUnread();
-    const interval = window.setInterval(refreshUnread, 15000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [auth, location.pathname, role]);
 
   if (!auth?.token) {
     return (
@@ -267,7 +193,7 @@ function AppShell() {
         { to: '/patient/dashboard', label: 'Dashboard' },
         { to: '/doctors', label: 'Find a Doctor' },
         { to: '/appointments', label: 'Appointments' },
-        { to: '/patient/notifications', label: 'Notifications', showDot: patientHasUnreadNotifications },
+        { to: '/patient/notifications', label: 'Notifications' },
         { to: '/profile', label: 'Profile' },
         { to: '/family-profiles', label: 'Family Profile' }
       ]}
