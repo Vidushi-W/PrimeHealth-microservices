@@ -74,143 +74,238 @@ export default function PatientDashboardPage({ auth }) {
       .join('') || 'U';
   }, [patientName]);
 
+  const quickActionIcons = {
+    'Book Appointment': '📅',
+    'Open Profile': '👤',
+    'Calculate Risk Score': '📊',
+    'Open Reminders': '🔔',
+    'Start Symptom Check': '🩺',
+    'Family Profile': '👨‍👩‍👧',
+    'Health Risk Analyzer': '💡'
+  };
+
+  const specialtyIcons = ['💊', '🫀', '🧠', '🦴', '👁️', '🦷', '🩻', '🧬'];
+  const specialtyColors = [
+    'from-teal-400 to-emerald-500',
+    'from-rose-400 to-pink-500',
+    'from-violet-400 to-purple-500',
+    'from-amber-400 to-orange-500'
+  ];
+
+  const statusConfig = {
+    CONFIRMED: { dot: 'bg-emerald-400', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    PENDING: { dot: 'bg-amber-400', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+    CANCELLED: { dot: 'bg-rose-400', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+    COMPLETED: { dot: 'bg-indigo-400', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' }
+  };
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return '🌅 Good morning';
+    if (hour < 17) return '☀️ Good afternoon';
+    return '🌙 Good evening';
+  };
+
   return (
-    <div className="space-y-5 animate-fade-up">
-      <section className="overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/90 shadow-soft">
-        <div className="space-y-3 px-4 py-4 lg:px-5 lg:py-5">
-          <div>
-            <p className="text-[0.65rem] font-bold uppercase tracking-[0.3em] text-brand-600">Patient workspace</p>
-            <h1 className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:text-[2rem]">
-              Welcome back, {patientName}
-            </h1>
-            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-600 sm:text-sm">
-              Your care updates, prescriptions, and next actions are available in one place.
-            </p>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Appointments" value={appointments.length} />
-            <StatCard label="Doctors" value={doctors.length} />
-            <StatCard label="Prescriptions" value={prescriptions.length} />
-            <StatCard label="Specialties" value={topSpecialties.length} />
-          </div>
-
-          <div className="rounded-2xl border border-brand-100 bg-white/70 p-2 sm:p-3">
-            <p className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-brand-700">Quick actions</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {quickActions.map((action) => (
-                <Link
-                  key={action.label}
-                  className={`${action.priority === 'primary' ? 'button-primary' : 'button-secondary'} shrink-0 whitespace-nowrap px-3 py-1.5 text-xs`}
-                  to={action.to}
-                >
-                  {action.label}
-                </Link>
-              ))}
+    <div className="space-y-6 animate-fade-up">
+      {/* ── Welcome Hero ──────────────────────────────────── */}
+      <section className="panel overflow-hidden relative">
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg, rgba(11,122,117,0.08) 0%, rgba(31,138,211,0.06) 40%, rgba(216,111,69,0.04) 100%)' }} />
+        <div className="relative p-8">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="flex items-start gap-5">
+              {/* Avatar */}
+              <div
+                className="flex-shrink-0 flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-lg"
+                style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' }}
+              >
+                {patientInitials}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-brand-600">{getGreeting()}</p>
+                <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-900" style={{ fontFamily: "'Fraunces', serif" }}>
+                  {patientName}
+                </h1>
+                <p className="mt-1 text-sm text-slate-500">{patientEmail}</p>
+              </div>
             </div>
+            <Link to="/profile" className="button-secondary text-xs hover:-translate-y-0.5">
+              ✏️ Edit Profile
+            </Link>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
-            <article className="rounded-2xl border border-brand-100 bg-brand-50/35 p-3">
-              <p className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-brand-700">Profile at-a-glance</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <div className="rounded-xl bg-white px-3 py-2">
-                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.15em] text-slate-500">Primary profile</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{patientName}</p>
-                </div>
-                <div className="rounded-xl bg-white px-3 py-2">
-                  <p className="text-[0.62rem] font-semibold uppercase tracking-[0.15em] text-slate-500">Latest status</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">Active</p>
-                </div>
-              </div>
-            </article>
-
-            <article className="rounded-2xl border border-brand-100 bg-white p-3">
-              <div className="flex items-center gap-3">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-sm font-black text-brand-700">
-                  {patientInitials}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{patientName}</p>
-                  <p className="truncate text-xs text-slate-500">{patientEmail}</p>
-                </div>
-              </div>
-              <Link to="/profile" className="mt-3 inline-flex text-xs font-semibold text-brand-700 hover:text-brand-800">
-                View full profile
-              </Link>
-            </article>
+          {/* ── Stat Cards ──────────────────────────────── */}
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard icon="📅" label="Appointments" value={appointments.length} color="from-teal-50 to-emerald-50" borderColor="border-emerald-200" textColor="text-emerald-700" />
+            <StatCard icon="👨‍⚕️" label="Doctors" value={doctors.length} color="from-sky-50 to-blue-50" borderColor="border-sky-200" textColor="text-sky-700" />
+            <StatCard icon="💊" label="Prescriptions" value={prescriptions.length} color="from-violet-50 to-purple-50" borderColor="border-violet-200" textColor="text-violet-700" />
+            <StatCard icon="🏥" label="Specialties" value={topSpecialties.length} color="from-amber-50 to-orange-50" borderColor="border-amber-200" textColor="text-amber-700" />
           </div>
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <div className="panel p-4">
+      {/* ── Quick Actions ─────────────────────────────────── */}
+      <section className="panel p-6">
+        <p className="eyebrow">⚡ Quick Actions</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {quickActions.map((action) => (
+            <Link
+              key={action.label}
+              to={action.to}
+              className={`group flex items-center gap-3 rounded-2xl border p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
+                action.priority === 'primary'
+                  ? 'border-brand-200 bg-gradient-to-br from-brand-50 to-white'
+                  : 'border-brand-100 bg-white hover:border-brand-300'
+              }`}
+            >
+              <span className="text-2xl">{quickActionIcons[action.label] || '📌'}</span>
+              <span className="text-sm font-semibold text-slate-700 group-hover:text-brand-700">{action.label}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Main Content Grid ─────────────────────────────── */}
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        {/* ── Upcoming Appointments ───────────────────── */}
+        <section className="panel p-6">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-black tracking-tight text-slate-900">Upcoming appointments</h2>
-            <Link to="/appointments" className="text-xs font-semibold text-brand-700 hover:text-brand-800">Manage</Link>
+            <div>
+              <p className="eyebrow">📋 Schedule</p>
+              <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900" style={{ fontFamily: "'Fraunces', serif" }}>
+                Upcoming Appointments
+              </h2>
+            </div>
+            <Link to="/appointments" className="button-secondary text-xs">
+              View all →
+            </Link>
           </div>
 
-          {loading ? <p className="mt-4 text-sm text-slate-500">Loading appointments...</p> : null}
-          {error ? <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+          {loading && (
+            <div className="mt-6 flex items-center justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-200 border-t-brand-500" />
+            </div>
+          )}
+          {error && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">⚠️ {error}</p>}
 
-          <div className="mt-3 space-y-2.5">
-            {appointments.length === 0 ? (
-              <EmptyCard text="No appointments yet. Start by booking with a specialist." />
+          <div className="mt-4 space-y-3">
+            {!loading && appointments.length === 0 ? (
+              <EmptyCard icon="📅" title="No appointments yet" text="Start by booking with a specialist to see your upcoming schedule here." />
             ) : (
-              appointments.slice(0, 4).map((appointment, index) => (
-                <article key={appointment.id || appointment._id || index} className="rounded-xl border border-brand-100 bg-brand-50/35 p-3">
-                  <p className="text-sm font-semibold text-slate-800">{appointment.doctorName || appointment.specialty || 'Doctor consultation'}</p>
-                  <p className="mt-1 text-xs text-slate-500">{appointment.appointmentDate || appointment.date || 'Date pending'} · {appointment.startTime || appointment.time || 'TBD'}</p>
-                  <div className="mt-2 inline-flex rounded-full bg-white px-2.5 py-1 text-[0.68rem] font-semibold text-slate-600">
-                    {appointment.status || 'scheduled'}
-                  </div>
-                </article>
-              ))
+              appointments.slice(0, 4).map((appointment, index) => {
+                const status = String(appointment.status || 'PENDING').toUpperCase();
+                const cfg = statusConfig[status] || statusConfig.PENDING;
+                const doctorInitial = (appointment.doctorName || 'D').charAt(0).toUpperCase();
+                return (
+                  <article
+                    key={appointment.id || appointment._id || index}
+                    className="flex items-center gap-4 rounded-2xl border border-brand-100 bg-white p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+                    style={{ borderLeft: `4px solid ${status === 'CONFIRMED' ? '#10b981' : status === 'COMPLETED' ? '#6366f1' : '#f59e0b'}` }}
+                  >
+                    <div
+                      className="flex-shrink-0 flex h-11 w-11 items-center justify-center rounded-xl text-sm font-black text-white"
+                      style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' }}
+                    >
+                      {doctorInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{appointment.doctorName || appointment.specialty || 'Doctor consultation'}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        📅 {appointment.appointmentDate || appointment.date || 'Date pending'} · 🕐 {appointment.startTime || appointment.time || 'TBD'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+                      <span className={`rounded-full border px-2.5 py-0.5 text-[0.65rem] font-bold ${cfg.bg}`}>
+                        {status}
+                      </span>
+                    </div>
+                  </article>
+                );
+              })
             )}
           </div>
+        </section>
+
+        {/* ── Specialties + Profile ───────────────────── */}
+        <div className="space-y-6">
+          <section className="panel p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="eyebrow">🏥 Explore</p>
+                <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Top Specialties
+                </h2>
+              </div>
+              <Link to="/doctors" className="button-secondary text-xs">Browse →</Link>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {topSpecialties.length === 0 ? (
+                <EmptyCard icon="🏥" title="No data" text="Doctor data is not available right now." />
+              ) : (
+                topSpecialties.map(([specialty, count], idx) => (
+                  <Link to="/doctors" key={specialty} className="group rounded-2xl border border-brand-100 bg-white p-4 transition-all hover:-translate-y-1 hover:shadow-lg">
+                    <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${specialtyColors[idx % specialtyColors.length]} text-lg text-white shadow-md`}>
+                      {specialtyIcons[idx % specialtyIcons.length]}
+                    </div>
+                    <h3 className="mt-3 text-sm font-bold text-slate-800 group-hover:text-brand-700">{specialty}</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">{count} doctor{count !== 1 ? 's' : ''} available</p>
+                  </Link>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Profile Card */}
+          <section className="panel p-6">
+            <p className="eyebrow">👤 Your Profile</p>
+            <div className="mt-4 flex items-center gap-4">
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg"
+                style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' }}
+              >
+                {patientInitials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-bold text-slate-900 truncate">{patientName}</p>
+                <p className="text-sm text-slate-500 truncate">{patientEmail}</p>
+                <div className="mt-1 inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span className="text-xs font-semibold text-emerald-600">Active</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link to="/profile" className="button-secondary text-xs">View Profile</Link>
+              <Link to="/family-profiles" className="button-secondary text-xs">Family Profiles</Link>
+              <Link to="/medical-history" className="button-secondary text-xs">Medical History</Link>
+            </div>
+          </section>
         </div>
-
-        <div className="panel p-4">
-          <h2 className="text-xl font-black tracking-tight text-slate-900">Top specialties</h2>
-          <p className="mt-1.5 text-xs text-slate-500">Suggested based on doctors currently available in PrimeHealth.</p>
-
-          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-            {topSpecialties.length === 0 ? (
-              <EmptyCard text="No doctor data available right now." />
-            ) : (
-              topSpecialties.map(([specialty, count]) => (
-                <article key={specialty} className="rounded-xl border border-white/80 bg-white p-3 shadow-sm">
-                  <p className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-brand-600">Specialty</p>
-                  <h3 className="mt-1.5 text-base font-bold text-slate-900">{specialty}</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">{count} doctors available</p>
-                </article>
-              ))
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2.5">
-            <Link className="button-secondary px-3 py-1.5 text-xs" to="/doctors">Browse all doctors</Link>
-            <Link className="button-secondary px-3 py-1.5 text-xs" to="/telemedicine">Open telemedicine</Link>
-          </div>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value }) {
+function StatCard({ icon, label, value, color, borderColor, textColor }) {
   return (
-    <div className="rounded-xl border border-brand-100 bg-white px-2.5 py-2 text-center shadow-sm">
-      <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-brand-700">{label}</p>
-      <p className="mt-0.5 text-base font-black text-slate-900 sm:text-lg">{value}</p>
+    <div className={`rounded-2xl border ${borderColor} bg-gradient-to-br ${color} p-4 text-center transition-all hover:-translate-y-1 hover:shadow-md`}>
+      <span className="text-2xl">{icon}</span>
+      <p className={`mt-1 text-2xl font-black ${textColor}`}>{value}</p>
+      <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">{label}</p>
     </div>
   );
 }
 
-function EmptyCard({ text }) {
+function EmptyCard({ icon, title, text }) {
   return (
-    <div className="rounded-2xl border border-dashed border-brand-100 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
-      {text}
+    <div className="col-span-full rounded-2xl border border-dashed border-brand-200 bg-brand-50/30 px-6 py-10 text-center">
+      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-brand-50">
+        <span className="text-2xl">{icon || '📭'}</span>
+      </div>
+      <p className="text-sm font-bold text-slate-700">{title || 'Nothing here yet'}</p>
+      <p className="mt-1 text-xs text-slate-500">{text}</p>
     </div>
   );
 }
