@@ -10,8 +10,8 @@ PrimeHealth coordinates **online and in-person care** through:
 
 - **Patient-facing** registration, profiles, health artefacts (reports, timeline), **AI-assisted symptom checking**, risk scoring, reminders, and booking.
 - **Doctor-facing** profiles, **availability / scheduling**, patient insights, **prescriptions** (dedicated service), reviews, notifications, and earnings views.
-- **Appointment & payment** flows with status sync and **PayHere**-hosted checkout (sandbox configurable).
-- **Telemedicine** with **Jitsi** video and **per-session chat**, plus **admin / analytics** for platform oversight.
+- **Appointment & payment** flows with status sync and **Stripe Checkout** integration.
+- **Telemedicine** with **8x8 JaaS Jitsi** video and **per-session chat**, plus **admin / analytics** for platform oversight.
 
 Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Socket.io)** alongside REST for realtime behaviour where enabled.
 
@@ -19,7 +19,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 ## Key Features
 
-### 1. Patient module + AI symptom checker
+### 1. Patient Service + AI symptom checker
 
 - Register / login (**JWT**)
 - Profile and **multi-profile (family)** support
@@ -27,7 +27,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 - **Symptom check** and **risk score** APIs (implemented in **patient-service**)
 - **Reminder** CRUD and “upcoming” listing
 
-### 2. Doctor module + prescription management
+### 2. Doctor service + prescription Service
 
 - Doctor registration, profile updates, **profile photo** upload
 - **Availability** and slot management (add, update, delete slots)
@@ -37,18 +37,18 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 > **Roadmap / partial:** features such as **voice-to-prescription** or advanced “smart scheduling” may be **planned or partially implemented**—verify in the UI and service routes for your demo revision.
 
-### 3. Appointment + payment module
+### 3. Appointment Service + payment Service
 
 - Create, list, filter, and **cancel** appointments; status updates for doctors/admins
-- **Payment initiation** (PayHere or simulated path), **confirm**, **history**, **invoice** download where applicable
+- **Payment initiation** (PayHere), **confirm**, **history**, **invoice** download where applicable
 - **Queue** position API for patients (where exposed)
 - Internal **payment-status** sync into appointments (service token when configured)
 
 > **Roadmap:** “AI-based doctor recommendation” and “rescheduling intelligence” may appear as **UI or future logic**—confirm against `appointment-service` and frontend for the branch you evaluate.
 
-### 4. Telemedicine module + analytics / admin
+### 4. Telemedicine Service + analytics and admin Service
 
-- **Video** consultation via **Jitsi** (`external_api.js`); **session chat** REST APIs
+- **Video** consultation via **8x8 JaaS Jitsi** (`external_api.js`); **session chat** REST APIs
 - Session lifecycle: create, list, join, start, end, cancel; **video token** for embedded meet
 - **Admin & analytics** service: user management, doctor verification, **analytics summary**, audit / finance views (**RBAC**)
 
@@ -77,7 +77,7 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 
 ---
 
-## Microservices / Modules
+## Microservices
 
 | Service | Folder | Responsibility |
 |--------|--------|------------------|
@@ -100,8 +100,8 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | Backend | Node.js (≥ 18), Express, Mongoose |
 | Database | MongoDB (local container or Atlas) |
 | Auth | JWT (patient, telemedicine, admin); header-based identity on some services |
-| Payments | PayHere (hosted checkout + signed notify) |
-| Video | Jitsi Meet (default `meet.jit.si`) |
+| Payments | Stripe Checkout |
+| Video | 8x8 JaaS Jitsi Meet |
 | Containers | Docker, Docker Compose |
 | Orchestration (optional) | Kubernetes (`k8s/`, `micro-services/k8s/`) |
 
@@ -150,7 +150,9 @@ Communication is primarily **REST**. **Telemedicine** may use **WebSockets (Sock
 | `ADMIN_MONGO_URI` | Mongo URI for **admin-analytics-service** (`<mongo-uri>` for admin DB) |
 | `MONGO_URI_DOCTOR`, `MONGO_URI_PATIENT`, `MONGO_URI_APPOINTMENT`, `MONGO_URI_PAYMENT`, `MONGO_URI_PRESCRIPTION`, `TELEMEDICINE_MONGO_URI` | Per-service Mongo URIs (defaults work with single Docker Mongo host) |
 | `INTERNAL_SERVICE_TOKEN` | Shared secret for internal sync routes |
-| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `PAYHERE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm, no PayHere). Set `PAYMENT_PROVIDER=PAYHERE` and sandbox credentials when ready. Guide: [docs/PAYHERE_SANDBOX.md](docs/PAYHERE_SANDBOX.md). |
+| `PAYMENT_PROVIDER`, `PAYMENT_SIMULATE_ALWAYS_SUCCESS`, `STRIPE_*` | **Default `SIMULATED`**: local test payments (initiate + confirm). Set `PAYMENT_PROVIDER=STRIPE` with Stripe keys for hosted checkout. |
+| `VIDEO_PROVIDER`, `JITSI_BASE_URL`, `JAAS_APP_ID`, `JAAS_KID`, `JAAS_PRIVATE_KEY` | Telemedicine provider settings for 8x8 JaaS Jitsi. |
+| `TELEMEDICINE_JOIN_OPEN_BEFORE_START_MINUTES`, `TELEMEDICINE_JOIN_GRACE_AFTER_END_MINUTES`, `TELEMEDICINE_DOCTOR_HOST_REQUIRED` | Telemedicine access window and doctor-host policy controls. |
 | `CORS_ORIGIN` | Allowed browser origin(s) |
 
 **Frontend** (`Frontend_UI/.env.local` — optional, not committed):
@@ -167,10 +169,8 @@ VITE_PAYMENT_API_URL=http://localhost:<payment-service-port>
 VITE_PRESCRIPTION_API_URL=http://localhost:<prescription-service-port>
 VITE_TELEMEDICINE_API_URL=http://localhost:<telemedicine-service-port>
 VITE_ADMIN_API_URL=http://localhost:<admin-service-port>
-# Match the backend: SIMULATED (default) or PAYHERE
-# VITE_PAYMENT_PROVIDER=SIMULATED
-# Optional: PayHere opens in a new tab by default (`_blank`). Use `_self` for same-tab redirect.
-# VITE_PAYHERE_CHECKOUT_TARGET=_self
+# Match the backend: SIMULATED or STRIPE
+# VITE_PAYMENT_PROVIDER=STRIPE
 ```
 
 Default ports used by the frontend code match the **full** Docker stack (see table below).
@@ -350,7 +350,7 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 ---
 
-## Deployment Steps for Submission
+## Deployment Steps
 
 1. **Clone the repository**
 
@@ -415,10 +415,10 @@ Create the first admin via documented **bootstrap** or **registration** flows in
 
 | Team member | Primary ownership |
 |-------------|-------------------|
-| **Sinali** | Patient module + AI symptom checker |
-| **Vidushi** | Doctor module + prescription management |
-| **Sithmi** | Appointment + payment module |
-| **Geethma** | Telemedicine module + analytics / admin service |
+| **J.V.S.Weerasinghe** | Doctor module + prescription management |
+| **M.A.T.S.Meewalaarachchi** | Patient module + AI symptom checker |
+| **H.G.S.Dias** | Telemedicine module + analytics / admin service |
+| **W.D.S.G.S.Sasanka** | Appointment + payment module |
 
 Fine-grained contributions: see **Git history** and branches.
 
@@ -428,8 +428,8 @@ Fine-grained contributions: see **Git history** and branches.
 
 - **Port 5001 clash:** Patient container listens on **5001** internally but is mapped to **5007** on the host in the full compose file; admin uses **5001** on the host. For manual runs, set **different `PORT`** values if both run on one machine.
 - **CORS:** Set `CORS_ORIGIN` to your exact frontend origin (e.g. `http://localhost:5173`).
-- **PayHere notify:** Must be reachable from the internet for real callbacks (use **ngrok** or deploy payment service).
-- **Jitsi / camera:** Browsers often require **HTTPS** or **localhost**; allow camera/mic permissions.
+- **PayHere integration:** Ensure sandbox/production keys are configured correctly and callback URLs are publicly accessible for payment confirmation.
+- **8x8 JaaS / camera:** Browsers often require **HTTPS** or **localhost**; allow camera/mic permissions.
 - **Secrets leaked in Git:** Rotate **JWT_SECRET**, PayHere keys, and Atlas passwords immediately.
 
 ---
@@ -443,7 +443,6 @@ Fine-grained contributions: see **Git history** and branches.
 - Dedicated **notification** microservice with async bus (e.g. RabbitMQ / Kafka)
 
 ---
-
 ## Conclusion
 
 PrimeHealth demonstrates a **realistic microservices** design for smart healthcare: **React** on the client, **Node.js** services on the server, **MongoDB** for persistence, **Docker** for reproducible local deployment, optional **Kubernetes** for orchestration demos, and integrations (**PayHere**, **Jitsi**) suitable for academic evaluation. Run **`docker compose up`** from the **repository root** (or **`micro-services/docker`**, which includes the same file) for the full stack; use **manual** runs when debugging a single service.

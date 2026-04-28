@@ -1451,7 +1451,9 @@ app.post('/api/admin/users/doctors', requireServiceReady, auth, requirePermissio
 
 app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
     try {
-        if (!isValidObjectId(req.params.id)) {
+        const doctorIdentifierQuery = buildUserIdentifierQuery(req.params.id);
+
+        if (!doctorIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
@@ -1499,7 +1501,7 @@ app.patch('/api/admin/users/doctors/:id', requireServiceReady, auth, requirePerm
 
         updates.lastActiveAt = new Date();
 
-        const doctor = await Doctor.findByIdAndUpdate(req.params.id, updates, { new: true });
+        const doctor = await Doctor.findOneAndUpdate(doctorIdentifierQuery, updates, { new: true });
 
         if (!doctor) {
             return res.status(404).json({ success: false, message: 'Doctor not found' });
@@ -1568,12 +1570,14 @@ app.patch('/api/admin/users/doctors/:id/verify', requireServiceReady, auth, requ
 
 app.patch('/api/admin/users/doctors/:id/deactivate', requireServiceReady, auth, requirePermission('user.deactivate'), async (req, res) => {
     try {
-        if (!isValidObjectId(req.params.id)) {
+        const doctorIdentifierQuery = buildUserIdentifierQuery(req.params.id);
+
+        if (!doctorIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid doctor id format' });
         }
 
         const doctor = await Doctor.findByIdAndUpdate(
-            req.params.id,
+            doctorIdentifierQuery,
             { status: 'deactivated', deletedAt: new Date(), lastActiveAt: new Date() },
             { new: true }
         );
@@ -1811,7 +1815,9 @@ app.post('/api/admin/users/patients', requireServiceReady, auth, requirePermissi
 
 app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, requirePermission('user.update'), async (req, res) => {
     try {
-        if (!isValidObjectId(req.params.id)) {
+        const patientIdentifierQuery = buildUserIdentifierQuery(req.params.id);
+
+        if (!patientIdentifierQuery) {
             return res.status(400).json({ success: false, message: 'Invalid patient id format' });
         }
 
@@ -1850,7 +1856,7 @@ app.patch('/api/admin/users/patients/:id', requireServiceReady, auth, requirePer
 
         updates.lastActiveAt = new Date();
 
-        const patient = await Patient.findByIdAndUpdate(req.params.id, updates, { new: true });
+        const patient = await Patient.findOneAndUpdate(patientIdentifierQuery, updates, { new: true });
 
         if (!patient) {
             return res.status(404).json({ success: false, message: 'Patient not found' });

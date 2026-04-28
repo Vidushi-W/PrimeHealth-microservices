@@ -2,31 +2,9 @@
 
 ---
 
-## Reporting a Vulnerability
 
-If you discover a security issue in PrimeHealth, please report it responsibly:
-
-1. **DO NOT** open a public GitHub issue
-2. Contact the team lead directly via your course communication channel
-3. Include in your report:
-   - Which service is affected (`appointment-service`, `payment-service`, etc.)
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact (data exposure, auth bypass, etc.)
-   - Suggested fix (if any)
-
-We will acknowledge receipt within **48 hours**.
-
----
 
 ## Security Architecture
-
-### Authentication
-- All services use **header-based mock authentication** for assignment scope:
-  - `x-user-id` — patient/doctor/admin ID
-  - `x-user-role` — `PATIENT` | `DOCTOR` | `ADMIN`
-- The `auth.js` middleware (`parseAuthHeaders` + `requireRole`) enforces role-based access on all protected routes
-- In production, replace with JWT token validation from a dedicated auth service
 
 ### Authorization by Role
 

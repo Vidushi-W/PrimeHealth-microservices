@@ -57,7 +57,7 @@ const doctorProfileSchema = new mongoose.Schema(
     consultationFee: {
       type: Number,
       min: 0,
-      default: 0,
+      default: 2500,
     },
     bio: {
       type: String,

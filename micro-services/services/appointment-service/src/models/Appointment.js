@@ -19,7 +19,7 @@ const appointmentSchema = new mongoose.Schema(
       default: 'online'
     },
     reason: { type: String, trim: true, default: '' },
-    consultationFee: { type: Number, default: 0, min: 0 },
+    consultationFee: { type: Number, default: 2500, min: 0 },
     queueNumber: { type: Number, default: 0 },
     status: {
       type: String,

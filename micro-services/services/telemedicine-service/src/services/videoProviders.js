@@ -2,23 +2,48 @@ const crypto = require('crypto');
 const Twilio = require('twilio');
 const { RtcTokenBuilder, RtcRole } = require('agora-access-token');
 const env = require('../config/env');
+const { buildJaasToken } = require('./jaasJwt');
+
+const sanitizeRoomSegment = (value) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 120);
 
 const getRoomName = (appointmentId) => {
-    if (appointmentId) {
-        return `primehealth-${appointmentId}`;
+    const suffix = appointmentId
+        ? `primehealth-${sanitizeRoomSegment(appointmentId)}`
+        : `primehealth-${crypto.randomUUID()}`;
+
+    if (env.videoProvider === 'jitsi' && env.jaasAppId) {
+        return `${env.jaasAppId}/${suffix}`;
     }
 
-    return `primehealth-${crypto.randomUUID()}`;
+    return suffix;
 };
 
-const buildJitsiSession = (session) => {
+const buildJitsiSession = (session, user) => {
     const roomUrl = `${env.jitsiBaseUrl.replace(/\/$/, '')}/${session.roomName}`;
+    const externalApiUrl = env.jaasExternalApiUrl
+        || (env.jaasAppId ? `https://8x8.vc/${env.jaasAppId}/external_api.js` : `${env.jitsiBaseUrl.replace(/\/$/, '')}/external_api.js`);
+
+    const role = String(user?.role || '').toLowerCase();
+    const moderator = role === 'doctor' || role === 'admin';
+    const token = buildJaasToken({
+        roomName: session.roomName,
+        user,
+        moderator
+    });
 
     return {
         provider: 'jitsi',
         roomName: session.roomName,
         roomUrl,
-        token: null,
+        externalApiUrl,
+        token,
         expiresInSeconds: null
     };
 };
@@ -86,7 +111,7 @@ const generateVideoSessionPayload = (session, user) => {
         return buildAgoraSession(session, user);
     }
 
-    return buildJitsiSession(session);
+    return buildJitsiSession(session, user);
 };
 
 module.exports = {

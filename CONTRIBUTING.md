@@ -9,10 +9,10 @@
 
 | Member | Module | Port |
 |--------|--------|------|
-| **Sithmi** | appointment-service + payment-service | 5003, 5004 |
-| Sinali | patient-service + AI symptom checker | 5001 |
-| Vidushi | doctor-service + prescription-service | 5002, 5005 |
-| Geethma | telemedicine-service + admin-analytics | — |
+| **W.D.S.G.S.Sasanka** | appointment-service + payment-service | 5003, 5004 |
+| M.A.T.S.Meewalaarachchi | patient-service + AI symptom checker | 5001 |
+| J.V.S.Weerasinghe | doctor-service + prescription-service | 5002, 5005 |
+| H.G.S.Dias | telemedicine-service + admin-analytics | — |
 
 **Rule**: Only touch files in your own service directory. Do not modify another team member's service code.
 

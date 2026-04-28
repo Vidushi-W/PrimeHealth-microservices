@@ -6,7 +6,6 @@ import {
   confirmStripePaymentSession,
   fetchAppointmentQueue,
   fetchAppointmentById,
-  fetchDoctorById,
   fetchPatientAppointments,
   fetchPaymentById,
   fetchPaymentByOrderId,
@@ -32,8 +31,9 @@ function normalizeMergedAppointment(item, source = 'central') {
 
   return {
     ...item,
-    _id: canonicalId,
-    appointmentId: canonicalId,
+    _id: localId || canonicalId,
+    appointmentId: localId || canonicalId,
+    canonicalAppointmentId: canonicalId,
     localAppointmentId: localId,
     externalAppointmentId: externalId,
     source,
@@ -77,13 +77,13 @@ function mergeAppointments(centralAppointments, portalAppointments) {
   (Array.isArray(centralAppointments) ? centralAppointments : []).forEach((item) => {
     const normalized = normalizeMergedAppointment(item, 'central');
     if (normalized.appointmentId) {
-      map.set(normalized.appointmentId, normalized);
+      map.set(normalized.canonicalAppointmentId || normalized.appointmentId, normalized);
     }
   });
 
   (Array.isArray(portalAppointments) ? portalAppointments : []).forEach((item) => {
     const normalized = normalizeMergedAppointment(item, 'portal');
-    const key = normalized.appointmentId;
+    const key = normalized.canonicalAppointmentId || normalized.appointmentId;
     if (!key) {
       return;
     }
@@ -99,6 +99,7 @@ function mergeAppointments(centralAppointments, portalAppointments) {
       ...existing,
       externalAppointmentId: existing.externalAppointmentId || normalized.externalAppointmentId,
       localAppointmentId: normalized.localAppointmentId || existing.localAppointmentId,
+      canonicalAppointmentId: existing.canonicalAppointmentId || normalized.canonicalAppointmentId,
       source: existing.source || normalized.source,
       status: mergeStatusTiered(existing.status, normalized.status),
       paymentStatus: mergePaymentTiered(existing.paymentStatus, normalized.paymentStatus)
@@ -196,7 +197,7 @@ function getJoinWindowState(appointment) {
   if (!start) return { canJoin: false, label: 'Schedule unavailable' };
 
   const now = new Date();
-  const opensAt = new Date(start.getTime() - (60 * 60 * 1000));
+  const opensAt = new Date(start.getTime() - (10 * 60 * 1000));
   if (now < opensAt) {
     const diffMs = opensAt.getTime() - now.getTime();
     const minutes = Math.max(1, Math.ceil(diffMs / (60 * 1000)));
@@ -209,6 +210,15 @@ function getJoinWindowState(appointment) {
 function isMongoId(value) {
   return /^[a-f\d]{24}$/i.test(String(value || '').trim());
 }
+
+function hasDoctorStartedTelemedicine(session) {
+  const metadata = session?.metadata || {};
+  const participants = metadata.participants || {};
+  return Boolean(participants?.doctor?.joinedAt)
+    || Boolean(metadata.doctorHasStarted)
+    || ['live', 'completed'].includes(String(session?.status || '').toLowerCase());
+}
+
 const DEFAULT_PAYMENT_AMOUNT_LKR = 2500;
 
 export default function AppointmentHubPage({ auth }) {
@@ -218,6 +228,7 @@ export default function AppointmentHubPage({ auth }) {
   const [workingId, setWorkingId] = useState('');
   const [queueByAppointment, setQueueByAppointment] = useState({});
   const [telemedicineByAppointment, setTelemedicineByAppointment] = useState({});
+  const [telemedicineSessions, setTelemedicineSessions] = useState([]);
   const [viewFilter, setViewFilter] = useState('ACTIVE_PAID');
 
   const payAppointmentId = String(searchParams.get('payAppointmentId') || '').trim();
@@ -246,6 +257,7 @@ export default function AppointmentHubPage({ auth }) {
           nextTelemedicineMap[appointmentId] = session;
         }
       });
+      setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
       setTelemedicineByAppointment(nextTelemedicineMap);
     } catch (error) {
       toast.error(error.message || 'Unable to load appointments');
@@ -257,6 +269,22 @@ export default function AppointmentHubPage({ auth }) {
   useEffect(() => {
     loadAppointments();
   }, [loadAppointments]);
+
+  useEffect(() => {
+    const interval = window.setInterval(async () => {
+      const sessions = await fetchTelemedicineSessions(auth).catch(() => []);
+      const nextTelemedicineMap = {};
+      (Array.isArray(sessions) ? sessions : []).forEach((session) => {
+        const appointmentId = String(session.appointmentId || '').trim();
+        if (appointmentId) {
+          nextTelemedicineMap[appointmentId] = session;
+        }
+      });
+      setTelemedicineSessions(Array.isArray(sessions) ? sessions : []);
+      setTelemedicineByAppointment(nextTelemedicineMap);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [auth]);
 
   const visibleAppointments = useMemo(
     () =>
@@ -285,7 +313,7 @@ export default function AppointmentHubPage({ auth }) {
     }
 
     const target = visibleAppointments.find(
-      (item) => String(item._id || item.id || item.appointmentId || '').trim() === payAppointmentId
+      (item) => String(item.canonicalAppointmentId || item.externalAppointmentId || item.appointmentId || item._id || item.id || '').trim() === payAppointmentId
     );
 
     if (target) {
@@ -314,7 +342,7 @@ export default function AppointmentHubPage({ auth }) {
 
         setAppointments((current) =>
           current.map((item) =>
-            String(item._id || item.id || item.appointmentId) === String(byOrder.appointmentId)
+            String(item.canonicalAppointmentId || item.externalAppointmentId || item.appointmentId || item._id || item.id) === String(byOrder.appointmentId)
               ? {
                 ...item,
                 paymentStatus: status === 'SUCCESS' ? 'PAID' : item.paymentStatus,
@@ -369,7 +397,9 @@ export default function AppointmentHubPage({ auth }) {
       const updated = await cancelAppointment(auth, appointmentId);
       setAppointments((current) =>
         current.map((item) =>
-          String(item._id || item.id || item.appointmentId) === appointmentId ? { ...item, ...updated } : item
+          String(item.canonicalAppointmentId || item.externalAppointmentId || item.appointmentId || item._id || item.id) === appointmentId
+            ? { ...item, ...updated }
+            : item
         )
       );
       toast.success('Appointment cancelled');
@@ -415,23 +445,7 @@ export default function AppointmentHubPage({ auth }) {
         || appointment.doctor?._id
         || appointment.doctor?.id;
 
-      let amount = Number(
-        appointment.fee
-        || appointment.consultationFee
-        || appointment.amount
-        || appointment.paymentAmount
-        || appointmentDetails?.consultationFee
-        || 0
-      );
-
-      if (amount <= 0 && doctorId) {
-        const doctor = await fetchDoctorById(doctorId).catch(() => null);
-        amount = Number(doctor?.consultationFee || 0);
-      }
-
-      if (amount <= 0) {
-        amount = DEFAULT_PAYMENT_AMOUNT_LKR;
-      }
+      const amount = DEFAULT_PAYMENT_AMOUNT_LKR;
       if (!patientId || !doctorId) {
         throw new Error('Unable to resolve appointment details for payment. Please re-open booking and try again.');
       }
@@ -484,9 +498,6 @@ export default function AppointmentHubPage({ auth }) {
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700">{upcomingCount} upcoming</span>
             <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">{visibleAppointments.length} shown</span>
-            <Link className="button-primary" to="/patient/appointments/book">
-              Book new appointment
-            </Link>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -514,12 +525,23 @@ export default function AppointmentHubPage({ auth }) {
 
         {!loading &&
           visibleAppointments.map((appointment) => {
-            const appointmentId = String(appointment._id || appointment.id || appointment.appointmentId || '');
+            const appointmentId = String(appointment.canonicalAppointmentId || appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id || '');
             const status = String(appointment.status || 'PENDING').toUpperCase();
             const isOnline = String(appointment.mode || '').toLowerCase() === 'online';
             const paymentStatus = String(appointment.paymentStatus || '').toUpperCase();
             const supportsCentralActions = Boolean(appointment.externalAppointmentId || appointment.source === 'central');
-            const linkedSession = telemedicineByAppointment[appointmentId];
+            const appointmentIdCandidates = [
+              appointment.localAppointmentId,
+              appointment._id,
+              appointment.id,
+              appointment.appointmentId,
+              appointment.canonicalAppointmentId,
+              appointment.externalAppointmentId,
+              appointmentId
+            ].map((value) => String(value || '').trim()).filter(Boolean);
+            const linkedSession = telemedicineSessions.find((item) =>
+              appointmentIdCandidates.includes(String(item?.appointmentId || '').trim())
+            ) || telemedicineByAppointment[appointmentId];
             const sessionStatus = String(linkedSession?.status || '').toLowerCase();
             const canPayAfterSession =
               isOnline
@@ -527,13 +549,22 @@ export default function AppointmentHubPage({ auth }) {
               && paymentStatus !== 'PAID'
               && !['CANCELLED'].includes(status);
             const joinWindow = getJoinWindowState(appointment);
-            const joinAppointmentId = String(appointment.externalAppointmentId || appointmentId || '').trim();
+            const joinAppointmentId = String(
+              appointment.localAppointmentId
+              || appointment._id
+              || appointment.id
+              || appointment.appointmentId
+              || appointment.canonicalAppointmentId
+              || appointment.externalAppointmentId
+              || appointmentId
+              || ''
+            ).trim();
             const paymentReady = paymentStatus === 'PAID' || status === 'CONFIRMED';
-            const canShowJoin = isMongoId(joinAppointmentId)
+            const canShowJoin = isMongoId(joinAppointmentId || linkedSession?.appointmentId)
               && isOnline
               && paymentReady
               && ['PENDING', 'CONFIRMED'].includes(status);
-            const paymentTargetId = appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id;
+            const paymentTargetId = appointment.canonicalAppointmentId || appointment.externalAppointmentId || appointment.appointmentId || appointment._id || appointment.id;
             const canInitiatePayment = isMongoId(paymentTargetId);
 
             return (
@@ -608,9 +639,9 @@ export default function AppointmentHubPage({ auth }) {
 
                 {queueByAppointment[appointmentId] ? (
                   <div className="mt-3 rounded-2xl border border-brand-100 bg-brand-50/40 px-3 py-2 text-xs text-slate-700">
-                    Queue position: {queueByAppointment[appointmentId]?.position ?? 'N/A'}
+                    Queue position: {queueByAppointment[appointmentId]?.position ?? queueByAppointment[appointmentId]?.myQueueNumber ?? 'N/A'}
                     {' · '}
-                    Waiting count: {queueByAppointment[appointmentId]?.waitingCount ?? 'N/A'}
+                    Waiting count: {queueByAppointment[appointmentId]?.waitingCount ?? queueByAppointment[appointmentId]?.peopleAheadOfMe ?? 'N/A'}
                   </div>
                 ) : null}
 

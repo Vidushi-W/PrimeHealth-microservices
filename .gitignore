@@ -128,3 +128,10 @@ test-results/
 .stripe/
 stripe-debug.log
 
+# Repo-local generated files not needed in commits
+/.env.example
+
+# One-off local migration helpers (do not commit)
+/scripts/backfillFlatConsultationFee.js
+/micro-services/services/appointment-service/scripts/backfillFlatFee.js
+/micro-services/services/patient-service/scripts/backfillFlatFee.js

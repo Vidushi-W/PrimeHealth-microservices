@@ -28,40 +28,37 @@ const canAccessSession = (user, session) => {
     return false;
 };
 
-/**
- * Time window: allow joining anytime until scheduled end + grace (no "1 hour before" gate).
- * Aligns with paid consults where parties may connect flexibly.
- */
 const canJoinSessionNow = (session) => {
-    const end = new Date(session?.scheduledEndAt || 0).getTime();
-    if (!Number.isFinite(end)) {
-        return {
-            allowed: false,
-            reason: 'Session schedule is invalid.'
-        };
-    }
-
-    const graceMinutes = env.joinGraceAfterEndMinutes;
-    const graceMs = graceMinutes * 60 * 1000;
-    const now = Date.now();
-
-    if (now > end + graceMs) {
-        return {
-            allowed: false,
-            reason: 'Session has already ended.'
-        };
-    }
-
+    // Time-window restrictions are intentionally disabled for the current workflow:
+    // doctor can host anytime and patient can join whenever doctor has hosted.
     return { allowed: true, reason: '' };
 };
 
-/**
- * Join / video-token: time window only (patient or doctor may connect first).
- */
+const hasDoctorStarted = (session) => {
+    const parts = session?.metadata?.participants || {};
+    return Boolean(parts?.doctor?.joinedAt) || Boolean(session?.metadata?.doctorHasStarted);
+};
+
 const assertTelemedicineVideoAccess = (user, session) => {
+    const doctorStarted = hasDoctorStarted(session);
+    const role = String(user?.role || '').toLowerCase();
+
+    // Testing/business rule: once doctor has hosted, allow patient re-join even after scheduled end window.
+    if (role === 'patient' && doctorStarted) {
+        return { allowed: true, reason: '', code: '' };
+    }
+
     const timeOk = canJoinSessionNow(session);
     if (!timeOk.allowed) {
         return { ...timeOk, code: 'OUTSIDE_JOIN_WINDOW' };
+    }
+
+    if (env.doctorHostRequired && role === 'patient' && !doctorStarted) {
+        return {
+            allowed: false,
+            reason: 'Please wait for your doctor to start the session.',
+            code: 'WAITING_FOR_DOCTOR'
+        };
     }
 
     return { allowed: true, reason: '', code: '' };
