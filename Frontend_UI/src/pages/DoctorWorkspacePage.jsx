@@ -15,6 +15,7 @@ import {
   fetchTelemedicineSessions
 } from '../services/platformApi';
 import { resolveCurrentDoctor } from '../utils/currentDoctor';
+import './Dashboard.css';
 
 function formatDate(value) {
   if (!value) return 'TBD';
@@ -138,6 +139,7 @@ export default function DoctorWorkspacePage({ auth }) {
     () => doctorSessions.filter((item) => item?.status === 'live').length,
     [doctorSessions]
   );
+  const totalReviews = reviewSummary.totalRatings || reviewSummary.reviews?.length || 0;
   const visibleUpcomingAppointments = useMemo(() => {
     if (upcomingAppointments.length) {
       return upcomingAppointments;
@@ -167,87 +169,104 @@ export default function DoctorWorkspacePage({ auth }) {
       }));
   }, [doctorAppointments, upcomingAppointments]);
   const availabilityPath = doctor?._id || doctor?.id ? `/doctors/${doctor?._id || doctor?.id}` : '/doctors';
+  const heroMetrics = [
+    { label: 'Appointments', value: String(doctorAppointments.length), tone: 'sky' },
+    { label: 'Live sessions', value: String(liveSessionCount), tone: 'emerald' },
+    { label: 'Prescriptions', value: String(prescriptions.length), tone: 'violet' },
+    { label: 'Reviews', value: String(totalReviews), tone: 'amber' }
+  ];
 
   return (
-    <div className="space-y-7 animate-fade-up">
-      <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white/80 shadow-soft">
-        <div className="grid gap-6 px-6 py-8 lg:grid-cols-[1.15fr_0.85fr] lg:px-8 lg:py-10">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.35em] text-brand-600">Doctor workspace</p>
+    <div className="doctor-dashboard space-y-7 animate-fade-up">
+      <section className="doctor-hero">
+        <div className="doctor-hero-glow doctor-hero-glow-left" aria-hidden="true" />
+        <div className="doctor-hero-glow doctor-hero-glow-right" aria-hidden="true" />
+        <div className="doctor-hero-layout grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="doctor-hero-copy">
+            <span className="doctor-kicker">Doctor workspace</span>
             <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
               Welcome Dr. {doctor?.name || auth.user?.fullName || auth.user?.name || 'Doctor'}
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
+            <p className="doctor-hero-description mt-4 max-w-2xl text-base leading-7 text-slate-600">
               Manage profile, availability, appointments, patient reports, ratings, and revenue in one place.
             </p>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="doctor-hero-actions mt-6 flex flex-wrap gap-3">
               <Link className="button-primary" to="/doctor/profile">Edit profile</Link>
               <Link className="button-secondary" to={availabilityPath}>Availability management</Link>
               <Link className="button-secondary" to="/doctor/earnings">Earnings</Link>
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-[1.5rem] bg-brand-50 p-6 text-slate-900 shadow-soft sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-700">Overall Rating</p>
-              <div className="mt-2">
-                <StarRating
-                  value={reviewSummary.averageRating}
-                  size="sm"
-                  showValue
-                  reviewCount={reviewSummary.totalRatings}
-                />
+          <div className="doctor-hero-panel grid gap-3 rounded-[1.5rem] p-6 text-slate-900 shadow-soft sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="doctor-rating-card rounded-2xl p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-700">Overall rating</p>
+              <div className="mt-3">
+                <StarRating value={reviewSummary.averageRating} size="sm" showValue reviewCount={totalReviews} />
               </div>
+              <p className="mt-3 text-sm text-slate-600">Patient trust is growing through steady reviews and consistent care.</p>
             </div>
-            <DoctorMetric label="Appointments" value={String(doctorAppointments.length)} />
-            <DoctorMetric label="Live sessions" value={String(liveSessionCount)} />
-            <DoctorMetric label="Prescriptions" value={String(prescriptions.length)} />
+            {heroMetrics.map((item, index) => (
+              <DoctorMetric
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                tone={item.tone}
+                className="doctor-metric-card"
+                style={{ animationDelay: `${120 + index * 80}ms` }}
+              />
+            ))}
           </div>
         </div>
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+        <div className="doctor-surface rounded-3xl border border-white/80 p-6 shadow-soft">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold text-slate-900">Doctor profile summary</h2>
+            <div>
+              <p className="doctor-section-kicker">Profile snapshot</p>
+              <h2 className="text-xl font-bold text-slate-900">Doctor profile summary</h2>
+            </div>
             <Link className="text-sm font-semibold text-brand-700" to="/doctor/profile">Edit profile</Link>
           </div>
-          <div className="mt-4 flex items-center gap-4 rounded-2xl border border-brand-100 bg-brand-50/50 p-3">
+          <div className="doctor-profile-banner mt-4 flex items-center gap-4 rounded-2xl p-3">
             <img
               src={getDoctorImageSrc(doctor?.profilePicture)}
               alt="Doctor profile"
-              className="h-16 w-16 rounded-full border-2 border-brand-100 object-cover"
+              className="h-16 w-16 rounded-full border-2 border-white/90 object-cover shadow-lg"
             />
             <div>
               <p className="text-base font-semibold text-slate-900">Dr. {doctor?.name || '-'}</p>
               <p className="text-sm text-slate-600">{doctor?.specialization || 'General practice'}</p>
             </div>
           </div>
-          <div className="mt-4 space-y-2 text-sm text-slate-700">
-            <p><strong>Name:</strong> {doctor?.name || '-'}</p>
-            <p><strong>Email:</strong> {doctor?.email || '-'}</p>
-            <p className="flex items-center gap-2">
+          <div className="doctor-info-grid mt-5">
+            <InfoPill label="Name" value={doctor?.name || '-'} />
+            <InfoPill label="Email" value={doctor?.email || '-'} />
+            <p className="doctor-info-pill flex items-center gap-2">
               <ContactIcon />
               <span><strong>Phone:</strong> {doctor?.phoneNumber || '-'}</span>
             </p>
-            <p><strong>Specialization:</strong> {doctor?.specialization || '-'}</p>
-            <p className="flex items-center gap-2">
+            <InfoPill label="Specialization" value={doctor?.specialization || '-'} />
+            <p className="doctor-info-pill flex items-center gap-2">
               <QualificationIcon />
               <span><strong>Qualifications:</strong> {doctor?.qualifications || '-'}</span>
             </p>
-            <p><strong>Experience:</strong> {doctor?.experience || 0} years</p>
-            <p className="flex items-center gap-2">
+            <InfoPill label="Experience" value={`${doctor?.experience || 0} years`} />
+            <p className="doctor-info-pill flex items-center gap-2">
               <HospitalIcon />
               <span><strong>Hospital / Clinic:</strong> {doctor?.hospitalOrClinic || '-'}</span>
             </p>
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+        <div className="doctor-surface rounded-3xl border border-white/80 p-6 shadow-soft">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold text-slate-900">Ratings and reviews</h2>
-            <span className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700">
+            <div>
+              <p className="doctor-section-kicker">Patient voice</p>
+              <h2 className="text-xl font-bold text-slate-900">Ratings and reviews</h2>
+            </div>
+            <span className="doctor-review-pill inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold text-brand-700">
               <StarRating
                 value={reviewSummary.averageRating}
                 size="sm"
@@ -258,7 +277,7 @@ export default function DoctorWorkspacePage({ auth }) {
           </div>
           <div className="mt-4 space-y-3">
             {(reviewSummary.reviews || []).slice(0, 3).map((item) => (
-              <article key={item._id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+              <article key={item._id} className="doctor-list-card rounded-2xl p-3">
                 <p className="text-sm font-semibold text-slate-900">{resolvePatientDisplayName(item)}</p>
                 <div className="mt-0.5">
                   <StarRating value={item.rating} size="sm" />
@@ -274,13 +293,14 @@ export default function DoctorWorkspacePage({ auth }) {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+        <div className="doctor-surface rounded-3xl border border-white/80 p-6 shadow-soft">
+          <p className="doctor-section-kicker">Care timeline</p>
           <h2 className="text-xl font-bold text-slate-900">Upcoming appointments</h2>
           <div className="mt-4 space-y-3">
             {visibleUpcomingAppointments.length ? visibleUpcomingAppointments.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+              <article key={item.id} className="doctor-list-card rounded-2xl p-3">
                 <p className="text-sm font-semibold text-slate-900">{resolvePatientDisplayName(item)}</p>
-                <p className="text-xs text-slate-500">{formatDate(item.appointmentDate)} • {item.appointmentTime || 'TBD'}</p>
+                <p className="text-xs text-slate-500">{formatDate(item.appointmentDate)} - {item.appointmentTime || 'TBD'}</p>
                 <p className="text-xs text-slate-500">Status: {item.status || 'PENDING'}</p>
                 {item.reason ? <p className="mt-1 text-sm text-slate-600">{item.reason}</p> : null}
               </article>
@@ -288,16 +308,17 @@ export default function DoctorWorkspacePage({ auth }) {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+        <div className="doctor-surface rounded-3xl border border-white/80 p-6 shadow-soft">
+          <p className="doctor-section-kicker">Clinical documents</p>
           <h2 className="text-xl font-bold text-slate-900">Patient reports</h2>
           <div className="mt-4 space-y-3">
             {patientReports.length ? patientReports.map((item, index) => (
-              <article key={`${item.reportId || index}`} className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+              <article key={`${item.reportId || index}`} className="doctor-list-card rounded-2xl p-3">
                 <p className="text-sm font-semibold text-slate-900">{item.patientName || item.patientId}</p>
-                <p className="text-xs text-slate-500">{item.fileName || 'Report file'} • {item.reportType || 'General'}</p>
+                <p className="text-xs text-slate-500">{item.fileName || 'Report file'} - {item.reportType || 'General'}</p>
                 <p className="text-xs text-slate-500">Uploaded: {formatDate(item.uploadedAt)}</p>
                 {item.fileUrl ? (
-                  <a className="mt-1 inline-block text-sm font-semibold text-brand-700" href={item.fileUrl} target="_blank" rel="noreferrer">View report</a>
+                  <a className="doctor-report-link mt-1 inline-block text-sm font-semibold text-brand-700" href={item.fileUrl} target="_blank" rel="noreferrer">View report</a>
                 ) : null}
               </article>
             )) : <p className="text-sm text-slate-500">No patient reports found.</p>}
@@ -305,27 +326,38 @@ export default function DoctorWorkspacePage({ auth }) {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-soft">
+      <section className="doctor-surface doctor-earnings-panel rounded-3xl border border-white/80 p-6 shadow-soft">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-slate-900">Earnings / Revenue</h2>
+          <div>
+            <p className="doctor-section-kicker">Business overview</p>
+            <h2 className="text-xl font-bold text-slate-900">Earnings / Revenue</h2>
+          </div>
           <Link className="button-secondary" to="/doctor/earnings">Open earnings page</Link>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <DoctorMetric label="Total earnings" value={`LKR ${Number(earnings.totalEarnings || 0).toFixed(2)}`} />
-          <DoctorMetric label="Current month" value={`LKR ${Number(earnings.currentMonthEarnings || 0).toFixed(2)}`} />
-          <DoctorMetric label="Paid consultations" value={String(earnings.completedPaidConsultations || 0)} />
+          <DoctorMetric label="Total earnings" value={`LKR ${Number(earnings.totalEarnings || 0).toFixed(2)}`} tone="emerald" />
+          <DoctorMetric label="Current month" value={`LKR ${Number(earnings.currentMonthEarnings || 0).toFixed(2)}`} tone="sky" />
+          <DoctorMetric label="Paid consultations" value={String(earnings.completedPaidConsultations || 0)} tone="amber" />
         </div>
       </section>
     </div>
   );
 }
 
-function DoctorMetric({ label, value }) {
+function DoctorMetric({ label, value, tone = 'sky', className = '', style }) {
   return (
-    <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
+    <div className={`doctor-metric doctor-metric-${tone} rounded-2xl p-4 shadow-sm ${className}`} style={style}>
       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-700">{label}</p>
       <p className="mt-2 text-2xl font-black text-slate-900">{value}</p>
     </div>
+  );
+}
+
+function InfoPill({ label, value }) {
+  return (
+    <p className="doctor-info-pill">
+      <strong>{label}:</strong> {value}
+    </p>
   );
 }
 
