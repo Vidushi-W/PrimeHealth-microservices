@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { fetchDoctors, fetchPatientAppointments, fetchPatientPrescriptions } from '../services/platformApi';
 
 export default function PatientDashboardPage({ auth }) {
@@ -73,6 +74,56 @@ export default function PatientDashboardPage({ auth }) {
       .map((part) => part[0]?.toUpperCase() || '')
       .join('') || 'U';
   }, [patientName]);
+
+  const latestPrescription = useMemo(() => {
+    const sorted = [...prescriptions].sort(
+      (left, right) => new Date(right?.updatedAt || right?.createdAt || 0) - new Date(left?.updatedAt || left?.createdAt || 0)
+    );
+    return sorted[0] || null;
+  }, [prescriptions]);
+
+  const handleOpenPrescription = async (pdfUrl) => {
+    if (!pdfUrl) {
+      toast.error('Prescription PDF is not available yet.');
+      return;
+    }
+
+    try {
+      const response = await fetch(pdfUrl, { method: 'HEAD' });
+      if (!response.ok) {
+        throw new Error('Prescription PDF could not be opened.');
+      }
+      window.open(pdfUrl, '_blank', 'noopener,noreferrer');
+    } catch (_error) {
+      toast.error('Prescription PDF is unavailable right now. Please try again shortly.');
+    }
+  };
+
+  const handleDownloadPrescription = async (pdfUrl, diagnosis = 'prescription') => {
+    if (!pdfUrl) {
+      toast.error('Prescription PDF is not available yet.');
+      return;
+    }
+
+    try {
+      const response = await fetch(pdfUrl);
+      if (!response.ok) {
+        throw new Error('Prescription download failed.');
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${String(diagnosis || 'prescription').trim().replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'prescription'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (_error) {
+      toast.error('Prescription download is unavailable right now. Please try again shortly.');
+    }
+  };
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -166,6 +217,55 @@ export default function PatientDashboardPage({ auth }) {
                   </div>
                 </article>
               ))
+            )}
+          </div>
+        </div>
+
+        <div className="panel p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-black tracking-tight text-slate-900">Recent prescriptions</h2>
+            <Link to="/patient/dashboard" className="text-xs font-semibold text-brand-700 hover:text-brand-800">Latest medications</Link>
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">Latest medications and treatment notes issued to you.</p>
+
+          <div className="mt-3 space-y-2.5">
+            {!latestPrescription ? (
+              <EmptyCard text="No prescriptions have been issued yet." />
+            ) : (
+              <article className="rounded-xl border border-brand-100 bg-white/80 p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{latestPrescription.diagnosis || 'Prescription issued'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Appointment: {latestPrescription.appointmentId || 'N/A'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {new Date(latestPrescription.updatedAt || latestPrescription.createdAt || Date.now()).toLocaleDateString()} · {(latestPrescription.medicines || []).length} medicines
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {latestPrescription.pdfUrl ? (
+                      <>
+                        <button
+                          type="button"
+                          className="button-secondary px-3 py-1.5 text-xs"
+                          onClick={() => handleOpenPrescription(latestPrescription.pdfUrl)}
+                        >
+                          View PDF
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary px-3 py-1.5 text-xs"
+                          onClick={() => handleDownloadPrescription(latestPrescription.pdfUrl, latestPrescription.diagnosis)}
+                        >
+                          Download Prescription
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                {latestPrescription.notes ? <p className="mt-2 text-xs text-slate-600">{latestPrescription.notes}</p> : null}
+              </article>
             )}
           </div>
         </div>

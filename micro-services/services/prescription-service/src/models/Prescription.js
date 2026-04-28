@@ -17,6 +17,9 @@ const prescriptionSchema = new mongoose.Schema(
     diagnosis: { type: String, required: true, trim: true },
     medicines: { type: [medicineSchema], default: [] },
     notes: { type: String, trim: true },
+    version: { type: Number, default: 1, min: 1 },
+    isActive: { type: Boolean, default: true },
+    archivedAt: { type: Date, default: null },
     pdfPath: { type: String, trim: true },
     pdfUrl: { type: String, trim: true }
   },

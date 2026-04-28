@@ -582,6 +582,16 @@ export async function fetchDoctorPrescriptions(token, doctorId) {
   return unwrap(response) || [];
 }
 
+export async function createPrescription(authOrToken, payload) {
+  const response = await prescriptionApi.post('/api/prescriptions', payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(authOrToken)
+    }
+  });
+  return unwrap(response);
+}
+
 export async function fetchPatientPrescriptions(token, patientId) {
   if (!patientId) return [];
 

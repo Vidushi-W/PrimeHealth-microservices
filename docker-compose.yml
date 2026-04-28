@@ -98,6 +98,7 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5003
       - DOCTOR_SERVICE_URL=http://doctor-service:5002
+      - PRESCRIPTION_SERVICE_URL=http://prescription-service:5005
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-primehealth-internal-sync-token}
     depends_on:
       - doctor-service
@@ -172,6 +173,9 @@ services:
       - NODE_ENV=production
       - MONGO_URI=${MONGO_URI_PRESCRIPTION:-mongodb://mongodb:27017/prescription-db}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - DOCTOR_SERVICE_URL=http://doctor-service:5002
+    volumes:
+      - prescription_storage:/app/storage
     networks:
       - primehealth-net
     restart: unless-stopped
@@ -217,4 +221,5 @@ networks:
 
 volumes:
   mongodb_data:
+  prescription_storage:
   telemedicine_uploads:

@@ -2,9 +2,40 @@ const express = require('express');
 const { body, param } = require('express-validator');
 const prescriptionController = require('../controllers/prescriptionController');
 const { validate } = require('../utils/validate');
-const { requireRole } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const ApiError = require('../utils/ApiError');
 
 const router = express.Router();
+
+function requirePatientScope(req, _res, next) {
+  if (!req.user || !req.user.id || !req.user.role) {
+    return next(new ApiError(401, 'Missing authentication headers'));
+  }
+
+  const role = String(req.user.role || '').trim().toLowerCase();
+  if (role === 'doctor' || role === 'service') {
+    return next();
+  }
+
+  if (role === 'patient' && String(req.user.id) === String(req.params.patientId)) {
+    return next();
+  }
+
+  return next(new ApiError(403, 'Forbidden: cannot access another patient\'s prescriptions'));
+}
+
+function requireDoctorScope(req, _res, next) {
+  if (!req.user || !req.user.id || !req.user.role) {
+    return next(new ApiError(401, 'Missing authentication headers'));
+  }
+
+  const role = String(req.user.role || '').trim().toLowerCase();
+  if (role === 'doctor' || role === 'service') {
+    return next();
+  }
+
+  return next(new ApiError(403, 'Forbidden: doctor access required'));
+}
 
 router.post(
   '/api/prescriptions',
@@ -28,6 +59,8 @@ router.get(
   '/api/prescriptions/patient/:patientId',
   [param('patientId').isString().trim().notEmpty()],
   validate,
+  requireAuth,
+  requirePatientScope,
   prescriptionController.getByPatient
 );
 
@@ -35,6 +68,8 @@ router.get(
   '/api/prescriptions/doctor/:doctorId',
   [param('doctorId').isString().trim().notEmpty()],
   validate,
+  requireAuth,
+  requireDoctorScope,
   prescriptionController.getByDoctor
 );
 
