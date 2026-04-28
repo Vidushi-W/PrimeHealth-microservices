@@ -1,5 +1,5 @@
 function getBaseUrl() {
-  return process.env.PRESCRIPTION_SERVICE_URL || "http://localhost:5003";
+  return process.env.PRESCRIPTION_SERVICE_URL || "http://localhost:5005";
 }
 
 async function fetchPrescriptionsByPatient(patientId) {
@@ -8,6 +8,8 @@ async function fetchPrescriptionsByPatient(patientId) {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
+      "x-user-id": String(patientId),
+      "x-user-role": "patient",
     },
   });
 

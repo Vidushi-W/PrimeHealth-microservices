@@ -10,8 +10,17 @@ function buildPdfFileName(prescriptionId) {
   return `prescription-${prescriptionId}.pdf`;
 }
 
+function parsePrescriptionIdFromFileName(fileName) {
+  const match = String(fileName || '').match(/^prescription-([a-f0-9]+)\.pdf$/i);
+  return match ? match[1] : '';
+}
+
 function getPdfDir() {
   return path.join(process.cwd(), 'storage', 'pdfs');
+}
+
+function getPdfFilePath(fileName) {
+  return path.join(getPdfDir(), fileName);
 }
 
 function getPdfPublicPath(fileName) {
@@ -75,7 +84,10 @@ async function generatePrescriptionPdf(prescription) {
 }
 
 module.exports = {
+  buildPdfFileName,
   generatePrescriptionPdf,
+  getPdfFilePath,
   getPdfDir,
-  getPdfPublicPath
+  getPdfPublicPath,
+  parsePrescriptionIdFromFileName
 };

@@ -112,6 +112,7 @@ function DetailCard({ item }) {
       <div className="list-meta">
         <strong>{item.metaPrimary}</strong>
         {item.metaSecondary ? <span>{item.metaSecondary}</span> : null}
+        {item.action ? item.action : null}
       </div>
     </article>
   );
@@ -210,6 +211,32 @@ function Dashboard({ auth, onProfileSync }) {
   const [analyzingReportId, setAnalyzingReportId] = useState('');
   const [deletingReportId, setDeletingReportId] = useState('');
   const [reportMessage, setReportMessage] = useState('');
+
+  const handleDownloadPrescription = async (pdfUrl, diagnosis = 'prescription') => {
+    if (!pdfUrl) {
+      setError('Prescription PDF is not available yet.');
+      return;
+    }
+
+    try {
+      const response = await fetch(pdfUrl);
+      if (!response.ok) {
+        throw new Error('Prescription download failed.');
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${String(diagnosis || 'prescription').trim().replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'prescription'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (_error) {
+      setError('Prescription download is unavailable right now.');
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -489,6 +516,15 @@ function Dashboard({ auth, onProfileSync }) {
                     subtitle: prescription.doctorId,
                     metaPrimary: prescription.createdAtLabel,
                     metaSecondary: `${prescription.medicineCount} medicines`,
+                    action: prescription.pdfUrl ? (
+                      <button
+                        className="btn btn-secondary small"
+                        onClick={() => handleDownloadPrescription(prescription.pdfUrl, prescription.diagnosis)}
+                        type="button"
+                      >
+                        Download Prescription
+                      </button>
+                    ) : null,
                   }}
                 />
               )) : <EmptyState label="No prescriptions yet." />}

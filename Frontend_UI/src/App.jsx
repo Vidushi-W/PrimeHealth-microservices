@@ -14,6 +14,7 @@ import DoctorProfilePage from './pages/DoctorProfilePage';
 import DoctorEarningsPage from './pages/DoctorEarningsPage';
 import DoctorAppointmentsPage from './pages/DoctorAppointmentsPage';
 import DoctorNotificationsPage from './pages/DoctorNotificationsPage';
+import DoctorPrescriptionPage from './pages/DoctorPrescriptionPage';
 import TelemedicinePage from './pages/TelemedicinePage';
 import BookAppointmentPage from './pages/BookAppointmentPage';
 import ProfilePage from './pages/ProfilePage';
@@ -170,6 +171,7 @@ function AppShell() {
           <Route path="/register" element={<Navigate replace to="/doctor/dashboard" />} />
           <Route path="/doctor/dashboard" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorWorkspacePage auth={auth} role="doctor" /></ProtectedRoute>} />
           <Route path="/doctor/appointments" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorAppointmentsPage auth={auth} /></ProtectedRoute>} />
+          <Route path="/doctor/prescriptions/new" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorPrescriptionPage auth={auth} /></ProtectedRoute>} />
           <Route path="/doctor/profile" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorProfilePage auth={auth} /></ProtectedRoute>} />
           <Route path="/doctor/earnings" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorEarningsPage auth={auth} /></ProtectedRoute>} />
           <Route path="/doctor/notifications" element={<ProtectedRoute auth={auth} allowedRoles={['doctor']}><DoctorNotificationsPage auth={auth} /></ProtectedRoute>} />

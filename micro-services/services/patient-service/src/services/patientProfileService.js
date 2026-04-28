@@ -399,13 +399,15 @@ function buildPrescriptionSummary(prescriptions) {
     ];
   }
 
-  return prescriptions.slice(0, 3).map((prescription) => ({
+  return prescriptions.slice(0, 1).map((prescription) => ({
     id: prescription._id,
     diagnosis: prescription.diagnosis,
     doctorId: prescription.doctorId,
-    createdAtLabel: formatDateLabel(prescription.createdAt),
+    appointmentId: prescription.appointmentId,
+    createdAtLabel: formatDateLabel(prescription.updatedAt || prescription.createdAt),
     medicineCount: Array.isArray(prescription.medicines) ? prescription.medicines.length : 0,
     pdfUrl: prescription.pdfUrl || "",
+    updatedAt: prescription.updatedAt || prescription.createdAt,
   }));
 }
 
@@ -527,8 +529,8 @@ function buildPrescriptionTimelineItems(prescriptions = []) {
     type: "prescription",
     title: prescription.diagnosis || "Prescription issued",
     description: `${Array.isArray(prescription.medicines) ? prescription.medicines.length : 0} medicine${Array.isArray(prescription.medicines) && prescription.medicines.length === 1 ? "" : "s"} added to your treatment plan`,
-    date: prescription.createdAt,
-    displayDate: formatDateLabel(prescription.createdAt),
+    date: prescription.updatedAt || prescription.createdAt,
+    displayDate: formatDateLabel(prescription.updatedAt || prescription.createdAt),
     status: "issued",
     doctorOrHospital: prescription.doctorId || "",
     action: buildAction("prescription", prescription),
